@@ -8,10 +8,14 @@ import pytz
 from bs4 import BeautifulSoup
 from pathlib import Path
 from collections import OrderedDict
+
+from fontTools.ttLib.woff2 import bboxFormat
 from tinkoff.invest import Client, GetOperationsByCursorRequest
 from tinkoff.invest.services import Services
 from tinkoff.invest.constants import INVEST_GRPC_API
 from tinkoff.invest.schemas import OperationType, OperationState, TradeDirection, CandleInterval
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import mplfinance as mpf
 
 
@@ -155,50 +159,60 @@ def colorize_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'S
 
 def get_stock_candles(client: Services, figi: str, start_date: datetime):
     stocks = client.instruments.shares().instruments
-    r = [x for x in stocks if x.figi == figi][0]
-    # ws = ['blueskies', 'brasil', 'charles', 'checkers', 'classic', 'default', 'mike',
-    #       'nightclouds', 'sas', 'starsandstripes', 'yahoo']
-    mc = mpf.make_marketcolors(
-        up='#00c93c',
-        down='#e30505',
-        volume='#1649c9',
-        edge='none')
-    style = mpf.make_mpf_style(
-        base_mpf_style='yahoo',
-        rc={
-            'axes.titlesize': 40,
-            'axes.linewidth': 1
-        },
-        marketcolors=mc,
-        gridaxis='both',
-        gridcolor='#DCDCDC',
-        mavcolors=['#4f8a8b', '#fbd46d', '#87556f']
-    )
-    cd2 = start_date.astimezone(tz=timezone.utc)
-    cd1 = cd2 - timedelta(days=2)
-    candles_list = []
-    for candle in client.get_all_candles(
-            figi=figi,
-            from_=cd1,
-            interval=CandleInterval.CANDLE_INTERVAL_10_MIN,
-    ):
-            candles_list.append({
-                "Date": candle.time,
-                "Open": float(candle.open.units + candle.open.nano * 10**-9),
-                "High": float(candle.high.units + candle.high.nano * 10**-9),
-                "Low": float(candle.low.units + candle.low.nano * 10**-9),
-                "Close": float(candle.close.units + candle.close.nano * 10**-9),
-                "Volume": float(candle.volume)}
-            )
-    candles_df = pd.DataFrame(candles_list, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
-    candles_df.set_index('Date', inplace=True)
-    fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m.%y', figratio=(16, 9),
-                         volume=False, returnfig=True, ylabel='', ylabel_lower='', xrotation=0,
-                         show_nontrading=True, style=style,
-                         title=f"\n\n\n\n{r.ticker} {r.name} {cd1.strftime('%d.%m.%Y')} - {cd2.strftime('%d.%m.%Y')}")
-    filename = f"{OUTPUT_PATH}/{r.ticker}.png"
-    fig.savefig(filename, dpi=600)
-    crop_image_white_margins(old_filename=filename, new_filename= filename)
+    st = [x for x in stocks if x.figi == figi]
+    if len(st) > 0:
+        stock = st[0]
+        # ws = ['blueskies', 'brasil', 'charles', 'checkers', 'classic', 'default', 'mike',
+        #       'nightclouds', 'sas', 'starsandstripes', 'yahoo']
+        mc = mpf.make_marketcolors(
+            up='#00c93c',
+            down='#e30505',
+            volume='#1649c9',
+            edge='none')
+        style = mpf.make_mpf_style(
+            base_mpf_style='yahoo',
+            rc={
+                'axes.titlesize': 14,
+                'axes.labelsize': 8,
+                'xtick.labelsize': 6,
+                'ytick.labelsize': 6
+            },
+            marketcolors=mc,
+            gridaxis='both',
+            gridcolor='#DCDCDC',
+            mavcolors=['#4f8a8b', '#fbd46d', '#87556f']
+        )
+        cd2 = start_date.astimezone(tz=timezone.utc)
+        cd1 = cd2 - timedelta(days=2)
+        candles_list = []
+        for candle in client.get_all_candles(
+                figi=figi,
+                from_=cd1, to=cd2,
+                interval=CandleInterval.CANDLE_INTERVAL_30_MIN,
+        ):
+                candles_list.append({
+                    "Date": candle.time,
+                    "Open": float(candle.open.units + candle.open.nano * 10**-9),
+                    "High": float(candle.high.units + candle.high.nano * 10**-9),
+                    "Low": float(candle.low.units + candle.low.nano * 10**-9),
+                    "Close": float(candle.close.units + candle.close.nano * 10**-9),
+                    "Volume": float(candle.volume)}
+                )
+        candles_df = pd.DataFrame(candles_list, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+        candles_df['Date'] = candles_df['Date'].dt.tz_convert(TIMEZONE)
+        candles_df.set_index('Date', inplace=True)
+        title = f"\n\n\n\n{stock.ticker} {stock.name} {cd1.strftime('%d.%m.%Y')} - {cd2.strftime('%d.%m.%Y')}"
+        fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m.%y %H:%M', figratio=(16, 9),
+                             volume=False, returnfig=True, xlabel= 'Time', ylabel='Price', xrotation=45,
+                             show_nontrading=True, style=style, axtitle=title, tight_layout=True,)
+        ax = axes[0]
+        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=60))
+        filename = f"{OUTPUT_PATH}/{stock.ticker}.png"
+        fig.savefig(filename, dpi=600, bbox_inches='tight' )
+        plt.close()
+        crop_image_white_margins(old_filename=filename, new_filename= filename)
+    else:
+        print(f'Stock with FIGI={figi} not found in shared stocks data')
 
 
 def get_operations_df(client: Services, account_id: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
@@ -316,6 +330,13 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
     operations_df = get_operations_df(client, account_id, start_date, end_date)
     operations_df.to_excel(excel_writer=writer, sheet_name='Операции', header=True, index=False)
     writer = format_xlsx(writer, operations_df, alignments='cllcccccc', sheet_name='Операции')
+    writer = colorize_xlsx(writer, operations_df, sheet_name='Операции')
+
+    unique_figi = operations_df['FIGI'].dropna().unique()
+    unique_figi = unique_figi[unique_figi != '']
+
+    for figi in unique_figi:
+        get_stock_candles(client, figi, end_date)
 
     total_operations_df = operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum()
     # total_operations_df['Сумма'] = total_operations_df['Сумма'].apply(lambda x: abs(float(x)))
@@ -340,6 +361,8 @@ def main():
 
 
 if __name__ == '__main__':
+    start_time = time.time()
+    print("Started...")
     clear_or_create_dir(OUTPUT_PATH)
     main()
-    print('DONE')
+    print(f"Done. Elapsed time {round((time.time() - start_time), 1)} seconds")
