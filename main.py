@@ -1,15 +1,15 @@
 import os
-import pandas as pd
-from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
-import requests
 import time
 import pytz
-from bs4 import BeautifulSoup
+import requests
+import pandas as pd
 from pathlib import Path
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 
-from fontTools.ttLib.woff2 import bboxFormat
+
 from tinkoff.invest import Client, GetOperationsByCursorRequest
 from tinkoff.invest.services import Services
 from tinkoff.invest.constants import INVEST_GRPC_API
@@ -130,31 +130,32 @@ def colorize_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'S
         param df (pandas.core.frame.DataFrame): pandas dataframe with data
         param sheet_name (str): sheet name
     """
-    workbook = writer.book
-    worksheet = writer.sheets[sheet_name]
-    condition_format_1 = workbook.add_format({'bg_color': '#fa6464'})  # red
-    condition_format_2 = workbook.add_format({'bg_color': '#faed64'})  # yellow
-    condition_format_3 = workbook.add_format({'bg_color': '#64fa6e'})  # green
-    condition_format_4 = workbook.add_format({'bg_color': '#64c0fa'})  # blue
-    header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center',
-                                         'border': 1})
-    for col_num, value in enumerate(df.columns.values):
-        worksheet.write(0, col_num, value, header_format)
-    worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
-                                              'value': f'"{operations_types[OperationType.OPERATION_TYPE_INPUT]}"',
-                                              'format': condition_format_4})
-    worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
-                                              'value': f'"{operations_types[OperationType.OPERATION_TYPE_BUY]}"',
-                                              'format': condition_format_1})
-    worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
-                                              'value': f'"{operations_types[OperationType.OPERATION_TYPE_SELL]}"',
-                                              'format': condition_format_3})
-    worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
-                                              'value': f'"{operations_types[OperationType.OPERATION_TYPE_BROKER_FEE]}"',
-                                              'format': condition_format_1})
-    worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
-                                              'value': f'"{operations_types[OperationType.OPERATION_TYPE_OUTPUT]}"',
-                                              'format': condition_format_2})
+    if df.shape[0] > 0:
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        condition_format_1 = workbook.add_format({'bg_color': '#fa6464'})  # red
+        condition_format_2 = workbook.add_format({'bg_color': '#faed64'})  # yellow
+        condition_format_3 = workbook.add_format({'bg_color': '#64fa6e'})  # green
+        condition_format_4 = workbook.add_format({'bg_color': '#64c0fa'})  # blue
+        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center',
+                                             'border': 1})
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+                                                  'value': f'"{operations_types[OperationType.OPERATION_TYPE_INPUT]}"',
+                                                  'format': condition_format_4})
+        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+                                                  'value': f'"{operations_types[OperationType.OPERATION_TYPE_BUY]}"',
+                                                  'format': condition_format_1})
+        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+                                                  'value': f'"{operations_types[OperationType.OPERATION_TYPE_SELL]}"',
+                                                  'format': condition_format_3})
+        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+                                                  'value': f'"{operations_types[OperationType.OPERATION_TYPE_BROKER_FEE]}"',
+                                                  'format': condition_format_1})
+        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+                                                  'value': f'"{operations_types[OperationType.OPERATION_TYPE_OUTPUT]}"',
+                                                  'format': condition_format_2})
     return writer
 
 def get_stock_candles(client: Services, figi: str, start_date: datetime):
@@ -215,40 +216,39 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime):
         print(f'Stock with FIGI={figi} not found in shared stocks data')
 
 
-def get_operations_df(client: Services, account_id: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+def get_operations_df(client: Services, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    stocks = client.instruments.shares().instruments
+    account_id = client.users.get_accounts().accounts[0].id
 
     def get_request(cursor=""):
         return GetOperationsByCursorRequest(
             account_id=account_id,
             instrument_id=None,
+            state=OperationState.OPERATION_STATE_EXECUTED,
             cursor=cursor,
             from_=start_date,
             to=end_date,
-            limit=100,
+            limit=5,
         )
 
-    stocks = client.instruments.shares().instruments
-    accounts = client.users.get_accounts()
-    account_id = accounts.accounts[0].id
     operations = client.operations.get_operations_by_cursor(get_request())
     operations_list = []
     while operations.has_next:
         for operation in operations.items:
             d = operation.date.astimezone(tz=pytz.timezone(TIMEZONE))
             r = [x for x in stocks if x.figi == operation.figi]
-            if operation.state == OperationState.OPERATION_STATE_EXECUTED:
-                operations_list.append({
-                    "Дата": d,
-                    "Тип операции": operations_types[operation.type.value],
-                    "FIGI": operation.figi,
-                    "Тикер": r[0].ticker if len(r) > 0 else '',
-                    "Название": r[0].name if len(r) > 0 else '',
-                    "Тип": r[0].share_type if len(r) > 0 else '',
-                    "Сумма": round(operation.payment.units + operation.payment.nano / 1e9, 2),
-                    "Цена лота": round(operation.price.units + operation.price.nano / 1e9, 2),
-                    "Количество лотов": operation.quantity,
-                    "Статус": operations_states[operation.state]
-                })
+            operations_list.append({
+                "Дата": d,
+                "Тип операции": operations_types[operation.type.value],
+                "FIGI": operation.figi,
+                "Тикер": r[0].ticker if len(r) > 0 else '',
+                "Название": r[0].name if len(r) > 0 else '',
+                "Тип": r[0].share_type if len(r) > 0 else '',
+                "Сумма": round(operation.payment.units + operation.payment.nano / 1e9, 2),
+                "Цена лота": round(operation.price.units + operation.price.nano / 1e9, 2),
+                "Количество лотов": operation.quantity,
+                "Статус": operations_states[operation.state]
+            })
         request = get_request(cursor=operations.next_cursor)
         operations = client.operations.get_operations_by_cursor(request)
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
@@ -258,7 +258,8 @@ def get_operations_df(client: Services, account_id: str, start_date: datetime, e
     return operations_df
 
 
-def get_money_df(client: Services, account_id: str) -> pd.DataFrame:
+def get_money_df(client: Services) -> pd.DataFrame:
+    account_id = client.users.get_accounts().accounts[0].id
     positions = client.operations.get_positions(account_id=account_id)
     money_list = []
     for money in positions.money:
@@ -275,7 +276,8 @@ def get_money_df(client: Services, account_id: str) -> pd.DataFrame:
     return money_df
 
 
-def get_stocks_df(client: Services, account_id: str) -> pd.DataFrame:
+def get_stocks_df(client: Services) -> pd.DataFrame:
+    account_id = client.users.get_accounts().accounts[0].id
     stocks = client.instruments.shares().instruments
     portfolio = client.operations.get_portfolio(account_id=account_id)
     stocks_list = []
@@ -323,11 +325,8 @@ def get_orders(client: Services, figi: str, depth: int):
 
 
 def make_report(client: Services, start_date: datetime, end_date: datetime):
-    account_id = client.users.get_accounts().accounts[0].id
-
     writer = pd.ExcelWriter(f"report.xlsx", engine='xlsxwriter')
-
-    operations_df = get_operations_df(client, account_id, start_date, end_date)
+    operations_df = get_operations_df(client, start_date, end_date)
     operations_df.to_excel(excel_writer=writer, sheet_name='Операции', header=True, index=False)
     writer = format_xlsx(writer, operations_df, alignments='cllcccccc', sheet_name='Операции')
     writer = colorize_xlsx(writer, operations_df, sheet_name='Операции')
@@ -343,11 +342,11 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
     total_operations_df.to_excel(excel_writer=writer, sheet_name='Итог', header=True, index=False)
     writer = format_xlsx(writer, total_operations_df, 'lc', sheet_name='Итог')
 
-    money_df = get_money_df(client, account_id)
+    money_df = get_money_df(client)
     money_df.to_excel(excel_writer=writer, sheet_name='Валюта', header=True, index=False)
     writer = format_xlsx(writer, money_df, alignments='c' * money_df.shape[1], sheet_name='Валюта')
 
-    stocks_df = get_stocks_df(client, account_id)
+    stocks_df = get_stocks_df(client)
     stocks_df.to_excel(excel_writer=writer, sheet_name='Акции', header=True, index=False)
     writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_df.shape[1], sheet_name='Акции')
     writer.close()
@@ -355,14 +354,15 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
 
 def main():
     with Client(TOKEN, target=INVEST_GRPC_API) as client:
-        start_date = datetime(2024, 1, 1, 0, 0, 0).astimezone(tz=timezone.utc)
-        end_date = datetime.now().astimezone(tz=timezone.utc)
+        clear_or_create_dir(OUTPUT_PATH)
+        start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+        # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+        end_date = datetime.now().replace(tzinfo=timezone.utc)
         make_report(client, start_date, end_date)
 
 
 if __name__ == '__main__':
     start_time = time.time()
     print("Started...")
-    clear_or_create_dir(OUTPUT_PATH)
     main()
     print(f"Done. Elapsed time {round((time.time() - start_time), 1)} seconds")

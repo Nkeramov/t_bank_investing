@@ -79,23 +79,24 @@ def format_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, alignments: str | None
         sheet_name: name of the sheet to be formatted
         cell_height: cell height
     """
-    workbook = writer.book
-    worksheet = writer.sheets[sheet_name]
-    if alignments is None:
-        alignments = 'l' * df.shape[1]
-    # set column width and alignment
-    a = {'l': 'left', 'r': 'right', 'c': 'center', 'j': 'justify'}
-    for col_index, col_name in enumerate(df.columns):
-        col_width = max(len(col_name), max(len(str(r)) for r in df[col_name])) + 5
-        cell_format = workbook.add_format()
-        # cell_format = workbook.add_format({'font_size': 12})
-        cell_format.set_align(a[alignments[col_index]])
-        # cell_format.set_border_color('#000000')
-        # cell_format.set_border(1)
-        worksheet.set_column(col_index, col_index, col_width, cell_format)
-    # set cells height
-    for i in range(len(df) + 1):
-        worksheet.set_row(i, cell_height)
+    if df.shape[0] > 0:
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        if alignments is None:
+            alignments = 'l' * df.shape[1]
+        # set column width and alignment
+        a = {'l': 'left', 'r': 'right', 'c': 'center', 'j': 'justify'}
+        for col_index, col_name in enumerate(df.columns):
+            col_width = max(len(col_name), max(len(str(r)) for r in df[col_name])) + 5
+            cell_format = workbook.add_format()
+            # cell_format = workbook.add_format({'font_size': 12})
+            cell_format.set_align(a[alignments[col_index]])
+            # cell_format.set_border_color('#000000')
+            # cell_format.set_border(1)
+            worksheet.set_column(col_index, col_index, col_width, cell_format)
+        # set cells height
+        for i in range(len(df) + 1):
+            worksheet.set_row(i, cell_height)
     return writer
 
 
