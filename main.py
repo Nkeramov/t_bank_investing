@@ -10,10 +10,11 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 
-from tinkoff.invest import Client, GetOperationsByCursorRequest
 from tinkoff.invest.services import Services
 from tinkoff.invest.constants import INVEST_GRPC_API
+from tinkoff.invest import Client, GetOperationsByCursorRequest
 from tinkoff.invest.schemas import OperationType, OperationState, TradeDirection, CandleInterval
+
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import mplfinance as mpf
@@ -121,9 +122,9 @@ def get_cb_currencies_rate():
 currencies_rates = get_cb_currencies_rate()
 
 
-def colorize_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1'):
+def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1'):
     """
-    Function for coloring cells in an XlsxWriter object based on their values
+    Function for coloring cells in an XlsxWriter object based on their values (for total operations report)
 
     Args:
         param writer (pandas.io.excel._xlsxwriter._XlsxWriter): object of type XlsxWriter
@@ -141,21 +142,56 @@ def colorize_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'S
                                              'border': 1})
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(0, col_num, value, header_format)
-        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+        cells = f'B2:B{df.shape[0] + 1}'
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to',
                                                   'value': f'"{operations_types[OperationType.OPERATION_TYPE_INPUT]}"',
                                                   'format': condition_format_4})
-        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to',
                                                   'value': f'"{operations_types[OperationType.OPERATION_TYPE_BUY]}"',
                                                   'format': condition_format_1})
-        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to',
                                                   'value': f'"{operations_types[OperationType.OPERATION_TYPE_SELL]}"',
                                                   'format': condition_format_3})
-        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to',
                                                   'value': f'"{operations_types[OperationType.OPERATION_TYPE_BROKER_FEE]}"',
                                                   'format': condition_format_1})
-        worksheet.conditional_format('B2:B1000', {'type': 'cell', 'criteria': 'equal to',
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to',
                                                   'value': f'"{operations_types[OperationType.OPERATION_TYPE_OUTPUT]}"',
                                                   'format': condition_format_2})
+    return writer
+
+def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1'):
+    """
+    Function for coloring cells in an XlsxWriter object based on their values (for total operations by companies report)
+
+    Args:
+        param writer (pandas.io.excel._xlsxwriter._XlsxWriter): object of type XlsxWriter
+        param df (pandas.core.frame.DataFrame): pandas dataframe with data
+        param sheet_name (str): sheet name
+    """
+    if df.shape[0] > 0:
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        condition_format_1 = workbook.add_format({'bg_color': '#fa6464'})  # red
+        condition_format_2 = workbook.add_format({'bg_color': '#faed64'})  # yellow
+        condition_format_3 = workbook.add_format({'bg_color': '#64fa6e'})  # green
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'vcenter',
+            'align': 'center',
+            'border': 1
+        })
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+        cells = f'B2:B{df.shape[0] + 1}'
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'less than', 'value': 0,
+                                                  'format': condition_format_1})
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'equal to', 'value': 0,
+                                                  'format': condition_format_2})
+        worksheet.conditional_format(cells, {'type': 'cell', 'criteria': 'greater than', 'value': 0,
+                                                  'format': condition_format_3})
+
     return writer
 
 def get_stock_candles(client: Services, figi: str, start_date: datetime):
@@ -199,19 +235,22 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime):
                     "Close": float(candle.close.units + candle.close.nano * 10**-9),
                     "Volume": float(candle.volume)}
                 )
-        candles_df = pd.DataFrame(candles_list, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
-        candles_df['Date'] = candles_df['Date'].dt.tz_convert(TIMEZONE)
-        candles_df.set_index('Date', inplace=True)
-        title = f"\n\n\n\n{stock.ticker} {stock.name} {cd1.strftime('%d.%m.%Y')} - {cd2.strftime('%d.%m.%Y')}"
-        fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m.%y %H:%M', figratio=(16, 9),
-                             volume=False, returnfig=True, xlabel= 'Time', ylabel='Price', xrotation=45,
-                             show_nontrading=True, style=style, axtitle=title, tight_layout=True,)
-        ax = axes[0]
-        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=60))
-        filename = f"{OUTPUT_PATH}/{stock.ticker}.png"
-        fig.savefig(filename, dpi=600, bbox_inches='tight' )
-        plt.close()
-        crop_image_white_margins(old_filename=filename, new_filename= filename)
+        if len(candles_list) > 0:
+            candles_df = pd.DataFrame(candles_list, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+            candles_df['Date'] = candles_df['Date'].dt.tz_convert(TIMEZONE)
+            candles_df.set_index('Date', inplace=True)
+            title = f"\n\n\n\n{stock.ticker} {stock.name} {cd1.strftime('%d.%m.%Y')} - {cd2.strftime('%d.%m.%Y')}"
+            fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m.%y %H:%M', figratio=(16, 9),
+                                 volume=False, returnfig=True, xlabel= 'Time', ylabel='Price', xrotation=45,
+                                 show_nontrading=True, style=style, axtitle=title, tight_layout=True,)
+            ax = axes[0]
+            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=60))
+            filename = f"{OUTPUT_PATH}/{stock.ticker}.png"
+            fig.savefig(filename, dpi=600, bbox_inches='tight' )
+            plt.close()
+            crop_image_white_margins(old_filename=filename, new_filename= filename)
+        else:
+            print(f'Candles for stock with FIGI={figi} not found')
     else:
         print(f'Stock with FIGI={figi} not found in shared stocks data')
 
@@ -254,7 +293,6 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
                                                            "Цена лота", "Количество лотов", "Сумма", "Статус"])
     operations_df.sort_values(by='Дата', ascending=True, inplace=True)
-    operations_df['Дата'] = operations_df['Дата'].apply(lambda x: x.strftime('%d.%m.%Y   %H.%M.%S'))
     return operations_df
 
 
@@ -301,11 +339,11 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
                 "Средневзвешенная цена акции": average_position_price,
                 "Доход за все время": expected_yield}
             )
-        stocks_df = pd.DataFrame(stocks_list, columns=["Название", "FIGI", "Тикер", "Количество акций",
-                                                      "Количество лотов", "Текущая цена акции",
-                                                      "Средневзвешенная цена акции", "Общая стоимость акций",
-                                                      "Доход за все время"])
-        return stocks_df
+    stocks_df = pd.DataFrame(stocks_list, columns=["Название", "FIGI", "Тикер", "Количество акций",
+                                                  "Количество лотов", "Текущая цена акции",
+                                                  "Средневзвешенная цена акции", "Общая стоимость акций",
+                                                  "Доход за все время"])
+    return stocks_df
 
 
 def get_last_trades(client: Services, figi: str, start_date: datetime, end_date: datetime):
@@ -324,45 +362,74 @@ def get_orders(client: Services, figi: str, depth: int):
         print(f'Продажа, количество: {ask.quantity}, цена {ask.price.units + ask.price.nano * 10**-9}')
 
 
+def get_favourite_instruments(client: Services) -> list[dict[str, str]]:
+    favourite = client.instruments.get_favorites()
+    return [
+        {
+            'figi': i.figi,
+            'ticker': i.ticker,
+            'name': i.name,
+            'type': i.instrument_type
+        } for i in favourite.favorite_instruments
+    ]
+
+
 def make_report(client: Services, start_date: datetime, end_date: datetime):
     writer = pd.ExcelWriter(f"report.xlsx", engine='xlsxwriter')
+
+    sheet_name = 'Операции'
     operations_df = get_operations_df(client, start_date, end_date)
-    operations_df.to_excel(excel_writer=writer, sheet_name='Операции', header=True, index=False)
-    writer = format_xlsx(writer, operations_df, alignments='cllcccccc', sheet_name='Операции')
-    writer = colorize_xlsx(writer, operations_df, sheet_name='Операции')
+    operations_df['Дата'] = operations_df['Дата'].apply(lambda x: x.strftime('%d.%m.%Y   %H.%M.%S'))
+    operations_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, operations_df, alignments='cllcccccc', sheet_name=sheet_name)
+    writer = colorize_operations_report(writer, operations_df, sheet_name=sheet_name)
 
-    unique_figi = operations_df['FIGI'].dropna().unique()
-    unique_figi = unique_figi[unique_figi != '']
-
-    for figi in unique_figi:
-        get_stock_candles(client, figi, end_date)
-
+    sheet_name = 'Итог по типам операций'
     total_operations_df = operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum()
-    # total_operations_df['Сумма'] = total_operations_df['Сумма'].apply(lambda x: abs(float(x)))
-    total_operations_df.to_excel(excel_writer=writer, sheet_name='Итог', header=True, index=False)
-    writer = format_xlsx(writer, total_operations_df, 'lc', sheet_name='Итог')
+    total_operations_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, total_operations_df, 'lc', sheet_name=sheet_name)
 
+    sheet_name = 'Итог по компаниям'
+    operations_by_companies_df = operations_df[operations_df['Название'].str.strip().str.len() > 0].\
+                            groupby(by="Название", as_index=False)['Сумма'].sum()
+    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
+    operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
+    writer = colorize_companies_report(writer, operations_by_companies_df, sheet_name=sheet_name)
+
+    sheet_name = 'Валюта'
     money_df = get_money_df(client)
-    money_df.to_excel(excel_writer=writer, sheet_name='Валюта', header=True, index=False)
-    writer = format_xlsx(writer, money_df, alignments='c' * money_df.shape[1], sheet_name='Валюта')
+    money_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, money_df, alignments='c' * money_df.shape[1], sheet_name=sheet_name)
 
+    sheet_name = 'Акции'
     stocks_df = get_stocks_df(client)
-    stocks_df.to_excel(excel_writer=writer, sheet_name='Акции', header=True, index=False)
-    writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_df.shape[1], sheet_name='Акции')
+    stocks_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_df.shape[1], sheet_name=sheet_name)
     writer.close()
+
+    figi_lst = [i['figi'] for i in get_favourite_instruments(client)]
+    for figi in operations_df['FIGI'].dropna().unique():
+        if figi != '' and figi not in figi:
+            figi_lst.append(figi)
+    for figi in figi_lst:
+        get_stock_candles(client, figi, end_date)
+    print(figi_lst)
 
 
 def main():
     with Client(TOKEN, target=INVEST_GRPC_API) as client:
         clear_or_create_dir(OUTPUT_PATH)
         start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+        # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
         # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
         end_date = datetime.now().replace(tzinfo=timezone.utc)
         make_report(client, start_date, end_date)
 
 
 if __name__ == '__main__':
-    start_time = time.time()
+    start_time = time.perf_counter()
     print("Started...")
     main()
-    print(f"Done. Elapsed time {round((time.time() - start_time), 1)} seconds")
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Done. Elapsed time {elapsed_time:.1f} seconds")
