@@ -1,16 +1,15 @@
-lxml == 5.3.0
-pytz == 2024.2
-numpy == 2.2.2
+lxml == 5.3.2
+pytz == 2025.2
+numpy == 2.2.4
 pandas == 2.2.3
-urllib3 == 2.3.0
+urllib3 == 2.4.0
 pillow == 11.1.0
 openpyxl == 3.1.5
 requests == 2.32.3
-XlsxWriter == 3.2.2
-matplotlib == 3.9.0
-mplfinance == 0.12.10b0
+XlsxWriter == 3.2.3
+matplotlib == 3.10.1
 python-dotenv == 1.0.1
-beautifulsoup4 == 4.13.1
+mplfinance == 0.12.10b0
+beautifulsoup4 == 4.13.4
 opencv-python >= 4.8.1.78
-tinkoff-investments == 0.2.0b109
-
+tinkoff-investments == 0.2.0b110
