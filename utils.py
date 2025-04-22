@@ -1,8 +1,9 @@
-import os
 import cv2
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from typing import Optional
+
 
 def recursive_rmdir(directory: str | Path) -> None:
     """
@@ -67,7 +68,8 @@ def clear_or_create_dir(directory: str | Path) -> None:
 
 
 def format_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, alignments: str | None = None,
-                sheet_name: str = 'Sheet1', cell_height: int = 20) -> pd.ExcelWriter:
+                sheet_name: str = 'Sheet1', font_size: Optional[int] = None, border_width: Optional[int] = None,
+                border_color: Optional[str] = None, cell_height: int = 20) -> pd.ExcelWriter:
     """
     Function for formatting an object of XlsxWriter type.
     Allows to set alignment for each column and adjust cells height.
@@ -77,26 +79,33 @@ def format_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, alignments: str | None
         df: pandas dataframe with data
         alignments: string indicating columns alignments (r, l, c, j), default is left alignment for all columns
         sheet_name: name of the sheet to be formatted
-        cell_height: cell height
+        font_size: font size for all cells
+        border_width: border width for all cells
+        border_color: border color for all cells
+        cell_height: cell height for all cells
     """
-    if df.shape[0] > 0:
-        workbook = writer.book
-        worksheet = writer.sheets[sheet_name]
-        if alignments is None:
-            alignments = 'l' * df.shape[1]
-        # set column width and alignment
-        a = {'l': 'left', 'r': 'right', 'c': 'center', 'j': 'justify'}
-        for col_index, col_name in enumerate(df.columns):
-            col_width = max(len(col_name), max(len(str(r)) for r in df[col_name])) + 5
-            cell_format = workbook.add_format()
-            # cell_format = workbook.add_format({'font_size': 12})
-            cell_format.set_align(a[alignments[col_index]])
-            # cell_format.set_border_color('#000000')
-            # cell_format.set_border(1)
-            worksheet.set_column(col_index, col_index, col_width, cell_format)
-        # set cells height
-        for i in range(len(df) + 1):
-            worksheet.set_row(i, cell_height)
+    workbook = writer.book
+    worksheet = writer.sheets[sheet_name]
+    if alignments is None:
+        alignments = 'l' * df.shape[1]
+    # set column width and alignment
+    a = {'l': 'left', 'r': 'right', 'c': 'center', 'j': 'justify'}
+    for col_index, col_name in enumerate(df.columns):
+        col_width = len(col_name)
+        if df.shape[0] > 0:
+            col_width = max(col_width, max(len(str(r)) for r in df[col_name])) + 1
+        cell_format = workbook.add_format()
+        cell_format.set_align(a[alignments[col_index]])
+        if font_size:
+            cell_format.set_font_size(font_size)
+        if border_width:
+            cell_format.set_border(border_width)
+        if border_color:
+            cell_format.set_border_color(border_color)
+        worksheet.set_column(col_index, col_index, col_width, cell_format)
+    # set cells height
+    for i in range(df.shape[0] + 1):
+        worksheet.set_row(i, cell_height)
     return writer
 
 
