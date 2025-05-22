@@ -25,7 +25,6 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
 
-
 load_dotenv('env/.env')
 TIMEZONE = os.getenv("TIMEZONE")
 os.environ["TZ"] = TIMEZONE
@@ -35,6 +34,7 @@ OUTPUT_PATH = Path(os.getenv("OUTPUT_PATH"))
 IMG_WIDTH, IMG_HEIGHT, IMG_DPI = 3600, 2000, 150
 TOKEN = os.getenv("TOKEN")
 CB_CURRENCIES_URL = os.getenv("CB_CURRENCIES_URL")
+REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
 
 operations_types = {
     OperationType.OPERATION_TYPE_UNSPECIFIED: 'Неизвестно',
@@ -317,6 +317,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
                 "Количество лотов": operation.quantity,
                 "Статус": operations_states[operation.state]
             })
+        time.sleep(REQUEST_DELAY_SECONDS)
         request = get_request(cursor=operations.next_cursor)
         operations = client.operations.get_operations_by_cursor(request)
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
@@ -445,7 +446,7 @@ def make_candle_charts(client: Services, start_date: datetime, end_date: datetim
             figi_lst.append(figi)
     for figi in figi_lst:
         get_stock_candles(client, figi, end_date, candles_path)
-
+        time.sleep(REQUEST_DELAY_SECONDS)
 
 
 def make_report(client: Services, start_date: datetime, end_date: datetime):
