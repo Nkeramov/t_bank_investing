@@ -32,7 +32,7 @@ time.tzset()
 INPUT_PATH = Path(os.getenv("INPUT_PATH"))
 OUTPUT_PATH = Path(os.getenv("OUTPUT_PATH"))
 IMG_WIDTH, IMG_HEIGHT, IMG_DPI = 3600, 2000, 150
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN", '')
 CB_CURRENCIES_URL = os.getenv("CB_CURRENCIES_URL")
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
 
@@ -123,7 +123,7 @@ def get_cb_currencies_rate():
 currencies_rates = get_cb_currencies_rate()
 
 
-def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1'):
+def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
     """
     Function for coloring cells in an XlsxWriter object based on their values (for total operations report)
 
@@ -176,7 +176,7 @@ def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_n
         })
     return writer
 
-def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1'):
+def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
     """
     Function for coloring cells in an XlsxWriter object based on their values (for total operations by companies report)
 
@@ -307,7 +307,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
             r = [x for x in stocks if x.figi == operation.figi]
             operations_list.append({
                 "Дата": d,
-                "Тип операции": operations_types[operation.type.value],
+                "Тип операции": operations_types[operation.type],
                 "FIGI": operation.figi,
                 "Тикер": r[0].ticker if len(r) > 0 else '',
                 "Название": r[0].name if len(r) > 0 else '',
@@ -489,15 +489,18 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
     writer.close()
 
 
-def main():
-    with Client(TOKEN, target=INVEST_GRPC_API) as client:
-        clear_or_create_dir(OUTPUT_PATH)
-        # start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-        start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-        # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-        end_date = datetime.now().replace(tzinfo=timezone.utc)
-        make_report(client, start_date, end_date)
-        make_candle_charts(client, start_date, end_date)
+def main() -> None:
+    if TOKEN:
+        with Client(TOKEN, target=INVEST_GRPC_API) as client:
+            clear_or_create_dir(OUTPUT_PATH)
+            # start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            end_date = datetime.now().replace(tzinfo=timezone.utc)
+            make_report(client, start_date, end_date)
+            make_candle_charts(client, start_date, end_date)
+    else:
+        print('Token not found')
 
 
 if __name__ == '__main__':
