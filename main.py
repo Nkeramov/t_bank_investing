@@ -470,6 +470,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
                             groupby(by="Название", as_index=False)['Сумма'].sum()
     operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
     operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    operations_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
     writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
     writer = colorize_companies_report(writer, operations_by_companies_df, sheet_name=sheet_name)
 
