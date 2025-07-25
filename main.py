@@ -288,7 +288,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     stocks = client.instruments.shares().instruments
     account_id = client.users.get_accounts().accounts[0].id
 
-    def get_request(cursor=""):
+    def get_request(cursor="") -> GetOperationsByCursorRequest:
         return GetOperationsByCursorRequest(
             account_id=account_id,
             instrument_id=None,
@@ -436,20 +436,15 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
     stocks_by_date_df = pd.DataFrame(stocks_by_date_list, columns=["Дата", "Название", "Количество лотов"])
     return stocks_by_date_df
 
-def make_candle_charts(client: Services, start_date: datetime, end_date: datetime):
-    operations_df = get_operations_df(client, start_date, end_date)
-    figi_lst = [instrument['figi'] for instrument in get_favourite_instruments(client)]
+def make_candle_charts(client: Services, figi_lst: list[str], start_date: datetime, end_date: datetime) -> None:
     candles_path = OUTPUT_PATH / 'candles'
     clear_or_create_dir(candles_path)
-    for figi in operations_df['FIGI'].dropna().unique():
-        if figi != '' and figi not in figi:
-            figi_lst.append(figi)
     for figi in figi_lst:
         get_stock_candles(client, figi, end_date, candles_path)
         time.sleep(REQUEST_DELAY_SECONDS)
 
 
-def make_report(client: Services, start_date: datetime, end_date: datetime):
+def make_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
     filename = f"{OUTPUT_PATH}/report.xlsx"
     writer = pd.ExcelWriter(filename, engine='xlsxwriter')
 
@@ -465,15 +460,6 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
     total_operations_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
     writer = format_xlsx(writer, total_operations_df, 'lc', sheet_name=sheet_name)
 
-    sheet_name = 'Итог по компаниям'
-    operations_by_companies_df = operations_df[operations_df['Название'].str.strip().str.len() > 0].\
-                            groupby(by="Название", as_index=False)['Сумма'].sum()
-    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
-    operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    operations_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
-    writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
-    writer = colorize_companies_report(writer, operations_by_companies_df, sheet_name=sheet_name)
-
     sheet_name = 'Валюта'
     money_df = get_money_df(client)
     money_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
@@ -484,22 +470,45 @@ def make_report(client: Services, start_date: datetime, end_date: datetime):
     stocks_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
     writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_df.shape[1], sheet_name=sheet_name)
 
+    sheet_name = 'Итог по компаниям'
+    operations_by_companies_df = operations_df[operations_df['Название'].str.strip().str.len() > 0].\
+                            groupby(by="Название", as_index=False)['Сумма'].sum()
+    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
+    # when calculating the results, we take into account the shares in the portfolio
+    stock_values_lookup = stocks_df.set_index('Название')['Общая стоимость акций'].to_dict()
+    for index, row in operations_by_companies_df.iterrows():
+        company_name = row['Название']
+        if company_name in stock_values_lookup:
+            stock_value_to_add = stock_values_lookup[company_name]
+            operations_by_companies_df.loc[index, 'Сумма'] += stock_value_to_add
+    operations_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
+    operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
+    writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
+    writer = colorize_companies_report(writer, operations_by_companies_df, sheet_name=sheet_name)
+
     # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
     # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
     # writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_by_date_df.shape[1], sheet_name='Портфель на дату')
     writer.close()
+
+    if draw_candles:
+        # collection of tickers as the sum of tickers from the favorites and tickers for which there were operations
+        figi_lst = [instrument['figi'] for instrument in get_favourite_instruments(client)]
+        for figi in operations_df['FIGI'].dropna().unique():
+            if figi != '' and figi not in figi:
+                figi_lst.append(figi)
+        make_candle_charts(client, figi_lst, start_date, end_date)
 
 
 def main() -> None:
     if TOKEN:
         with Client(TOKEN, target=INVEST_GRPC_API) as client:
             clear_or_create_dir(OUTPUT_PATH)
-            # start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-            start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             end_date = datetime.now().replace(tzinfo=timezone.utc)
-            make_report(client, start_date, end_date)
-            make_candle_charts(client, start_date, end_date)
+            make_report(client, start_date, end_date, True)
     else:
         print('Token not found')
 
