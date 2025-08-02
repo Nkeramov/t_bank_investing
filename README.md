@@ -1,5 +1,9 @@
 # Trade Analyzer for T-Bank Investments
 
+![Python](https://img.shields.io/badge/python-3.11-blue.svg)
+[![Checked with mypy](http://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![license](https://img.shields.io/badge/licence-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 ## Description
 
 The application analyzes how successfully you trade through the T-Bank Investments service. 
