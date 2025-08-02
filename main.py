@@ -49,7 +49,9 @@ operations_types = {
     OperationType.OPERATION_TYPE_OVERNIGHT: 'Овернайт',
     OperationType.OPERATION_TYPE_DIVIDEND_TAX: 'Налоги c дивидендов',
     OperationType.OPERATION_TYPE_TAX_CORRECTION: 'Возврат налога',
-    OperationType.OPERATION_TYPE_SERVICE_FEE: 'Комиссия за обслуживание'
+    OperationType.OPERATION_TYPE_SERVICE_FEE: 'Комиссия за обслуживание',
+    OperationType.OPERATION_TYPE_BENEFIT_TAX: 'Налог за материальную выгоду',
+    OperationType.OPERATION_TYPE_BENEFIT_TAX_PROGRESSIVE: 'Налог за материальную выгоду по ставке 15%'
 }
 
 operations_states = {
@@ -74,7 +76,7 @@ trade_directions = {
 }
 
 
-def get_cb_currencies_rate():
+def get_cb_currencies_rate() -> dict:
     """Retrieves currency exchange rates from the Central Bank's website.
 
         This function fetches the latest currency exchange rates from a specified URL
@@ -135,45 +137,34 @@ def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_n
     if df.shape[0] > 0:
         workbook = writer.book
         worksheet = writer.sheets[sheet_name]
-        condition_format_1 = workbook.add_format({'bg_color': '#fa6464'})  # red
-        condition_format_2 = workbook.add_format({'bg_color': '#faed64'})  # yellow
-        condition_format_3 = workbook.add_format({'bg_color': '#64fa6e'})  # green
-        condition_format_4 = workbook.add_format({'bg_color': '#64c0fa'})  # blue
-        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center',
-                                             'border': 1})
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'vcenter',
+            'align': 'center',
+            'border': 1
+        })
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(0, col_num, value, header_format)
         cells = f'B2:B{df.shape[0] + 1}'
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': f'"{operations_types[OperationType.OPERATION_TYPE_INPUT]}"',
-            'format': condition_format_4
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': f'"{operations_types[OperationType.OPERATION_TYPE_BUY]}"',
-            'format': condition_format_1
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': f'"{operations_types[OperationType.OPERATION_TYPE_SELL]}"',
-            'format': condition_format_3
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': f'"{operations_types[OperationType.OPERATION_TYPE_BROKER_FEE]}"',
-            'format': condition_format_1
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': f'"{operations_types[OperationType.OPERATION_TYPE_OUTPUT]}"',
-            'format': condition_format_2
-        })
+        condition_format_red = workbook.add_format({'bg_color': '#fa6464'})
+        condition_format_yellow = workbook.add_format({'bg_color': '#faed64'})
+        condition_format_green = workbook.add_format({'bg_color': '#64fa6e'})
+        condition_format_blue = workbook.add_format({'bg_color': '#64c0fa'})
+        condition_format_by_operations_types = {
+            OperationType.OPERATION_TYPE_INPUT: condition_format_blue,
+            OperationType.OPERATION_TYPE_BUY: condition_format_red,
+            OperationType.OPERATION_TYPE_SELL: condition_format_green,
+            OperationType.OPERATION_TYPE_BROKER_FEE: condition_format_red,
+            OperationType.OPERATION_TYPE_OUTPUT: condition_format_yellow,
+        }
+        for operation_type, condition_format in condition_format_by_operations_types.items():
+            worksheet.conditional_format(cells, {
+                'type': 'cell',
+                'criteria': 'equal to',
+                'value': f'"{operations_types[operation_type]}"',
+                'format': condition_format
+            })
     return writer
 
 def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
@@ -222,7 +213,7 @@ def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_na
     return writer
 
 
-def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path):
+def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path) -> None:
     candles_path = Path(candles_path)
     stocks = client.instruments.shares().instruments
     st = [x for x in stocks if x.figi == figi]
@@ -288,7 +279,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     stocks = client.instruments.shares().instruments
     account_id = client.users.get_accounts().accounts[0].id
 
-    def get_request(cursor="") -> GetOperationsByCursorRequest:
+    def get_request(cursor: str="") -> GetOperationsByCursorRequest:
         return GetOperationsByCursorRequest(
             account_id=account_id,
             instrument_id=None,
@@ -376,13 +367,13 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
     return stocks_df
 
 
-def get_last_trades(client: Services, figi: str, start_date: datetime, end_date: datetime):
+def get_last_trades(client: Services, figi: str, start_date: datetime, end_date: datetime) -> None:
     trades = client.market_data.get_last_trades(figi=figi, from_=start_date, to=end_date)
     for trade in trades.trades:
         print(f'{trade_directions[trade.direction]}, количество: {trade.quantity}, цена {trade.price.units + trade.price.nano * 10**-9}')
 
 
-def get_orders(client: Services, figi: str, depth: int):
+def get_orders(client: Services, figi: str, depth: int) -> None:
     orders = client.market_data.get_order_book(figi=figi, depth=depth)
     # Множество пар значений на покупку
     for bid in orders.bids:
