@@ -2,14 +2,13 @@ import os
 import time
 import pytz
 import requests
-from decimal import Decimal
 import pandas as pd
 from pathlib import Path
+from decimal import Decimal, ROUND_HALF_UP
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
-
 
 import mplfinance as mpf
 import matplotlib.pyplot as plt
@@ -19,13 +18,13 @@ from tinkoff.invest.services import Services
 from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal
 from tinkoff.invest.constants import INVEST_GRPC_API
 from tinkoff.invest.clients import Client
-from tinkoff.invest import GetOperationsByCursorRequest, TradingSchedule, RequestError
-from tinkoff.invest.schemas import OperationState, CandleInterval
+from tinkoff.invest import GetOperationsByCursorRequest, RequestError
+from tinkoff.invest.schemas import OperationState, CandleInterval, TradingDay
 
 from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins
 from libs.report_colorize import colorize_operations_report, colorize_companies_report
 from libs.grpc_schemas_descriptions import operations_types, operations_states, trade_directions
-
+from libs.log_utils import LoggerSingleton
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -41,6 +40,13 @@ IMG_WIDTH, IMG_HEIGHT, IMG_DPI = 3600, 2000, 150
 TOKEN = os.getenv("TOKEN", '')
 CB_CURRENCIES_URL = os.getenv("CB_CURRENCIES_URL")
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
+
+logger = LoggerSingleton(
+    log_dir=Path('logs'),
+    log_file="app.log",
+    level="INFO",
+    colored=True
+).get_logger()
 
 
 def get_cb_currencies_rate() -> dict:
@@ -81,18 +87,18 @@ def get_cb_currencies_rate() -> dict:
                 'rate': cells[4].text.strip()
             }
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data: {e}")
+        logger.error(f"Error fetching data: {e}")
     except ValueError as e:
-        print(f"Error parsing data: {e}")
+        logger.error(f"Error parsing data: {e}")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred: {e}")
     return currency_rates
 
 
 currencies_rates = get_cb_currencies_rate()
 
 
-def get_moex_trading_schedule_by_date(client: Services, date_: datetime) -> TradingSchedule:
+def get_moex_trading_schedule_by_date(client: Services, date_: datetime) -> TradingDay:
     """
         date	google.protobuf.Timestamp	Дата.
         is_trading_day	bool	Признак торгового дня на бирже.
@@ -173,9 +179,9 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
             plt.close()
             crop_image_white_margins(old_filename=filename, new_filename= filename)
         else:
-            print(f'Candles for stock with FIGI={figi} not found')
+            logger.warning(f'Candles for stock with FIGI={figi} not found')
     else:
-        print(f'Stock with FIGI={figi} not found in shared stocks data')
+        logger.warning(f'Stock with FIGI={figi} not found in shared stocks data')
 
 
 def get_operations_df(client: Services, start_date: datetime, end_date: datetime) -> pd.DataFrame:
@@ -216,7 +222,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
             request = get_request(cursor=operations.next_cursor)
             operations = client.operations.get_operations_by_cursor(request)
         except RequestError as e:
-            print('Waiting for rate limit reset for ', str(e.metadata.ratelimit_reset + 3), ' sec.')
+            logger.error('Waiting for rate limit reset for ', str(e.metadata.ratelimit_reset + 3), ' sec.')
             time.sleep(e.metadata.ratelimit_reset + 3)
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
                                                            "Цена лота", "Количество лотов", "Сумма", "Статус"])
@@ -230,9 +236,9 @@ def get_money_df(client: Services) -> pd.DataFrame:
     money_list = []
     for money in positions.money:
         currency_name = str(money.currency).upper()
-        currency_balance = money.units + money.nano / 10**9
+        currency_balance = money_to_decimal(money)
         currency = currencies_rates[currency_name]
-        currency_balance = round(float(currency_balance) / currency['nominal'] * currency['rate'], 3)
+        currency_balance = (currency_balance / Decimal(currency['nominal']) * Decimal(currency['rate']))
         money_list.append({
                 "Валюта": currency['name'],
                 "Сумма": currency_balance,
@@ -277,17 +283,17 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
 def get_last_trades(client: Services, figi: str, start_date: datetime, end_date: datetime) -> None:
     trades = client.market_data.get_last_trades(figi=figi, from_=start_date, to=end_date)
     for trade in trades.trades:
-        print(f'{trade_directions[trade.direction]}, количество: {trade.quantity}, цена {quotation_to_decimal(trade.price)}')
+        logger.info(f'{trade_directions[trade.direction]}, количество: {trade.quantity}, цена {quotation_to_decimal(trade.price)}')
 
 
 def get_orders(client: Services, figi: str, depth: int) -> None:
     orders = client.market_data.get_order_book(figi=figi, depth=depth)
     # Множество пар значений на покупку
     for bid in orders.bids:
-        print(f'Покупка, количество: {bid.quantity}, цена {quotation_to_decimal(bid.price)}')
+        logger.info(f'Покупка, количество: {bid.quantity}, цена {quotation_to_decimal(bid.price)}')
     # Множество пар значений на продажу
     for ask in orders.asks:
-        print(f'Продажа, количество: {ask.quantity}, цена {quotation_to_decimal(ask.price)}')
+        logger.info(f'Продажа, количество: {ask.quantity}, цена {quotation_to_decimal(ask.price)}')
 
 
 def get_favourite_instruments(client: Services) -> list[dict[str, str]]:
@@ -300,7 +306,6 @@ def get_favourite_instruments(client: Services) -> list[dict[str, str]]:
             'type': i.instrument_type
         } for i in favourite.favorite_instruments
     ]
-
 
 def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> pd.DataFrame:
     cur_stocks_amount = {}
@@ -334,6 +339,7 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
     stocks_by_date_df = pd.DataFrame(stocks_by_date_list, columns=["Дата", "Название", "Количество лотов"])
     return stocks_by_date_df
 
+
 def make_candle_charts(client: Services, figi_lst: list[str], start_date: datetime, end_date: datetime) -> None:
     candles_path = OUTPUT_PATH / 'candles'
     clear_or_create_dir(candles_path)
@@ -343,46 +349,63 @@ def make_candle_charts(client: Services, figi_lst: list[str], start_date: dateti
 
 
 def make_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
+    def decimal_to_float_6_decimals(value):
+        if isinstance(value, Decimal):
+            return float(value.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP))
+        return value
+
+    def round_dataframe_with_decimals(df: pd.DataFrame) -> pd.DataFrame:
+        df_to_save = df.copy()
+
+        for column in df_to_save.columns:
+            if df_to_save[column].apply(lambda x: isinstance(x, Decimal)).any():
+                df_to_save[column] = df_to_save[column].apply(decimal_to_float_6_decimals)
+        return df_to_save
+
     filename = f"{OUTPUT_PATH}/report.xlsx"
     writer = pd.ExcelWriter(filename, engine='xlsxwriter')
 
     sheet_name = 'Операции'
     operations_df = get_operations_df(client, start_date, end_date)
     operations_df['Дата'] = operations_df['Дата'].apply(lambda x: x.strftime('%d.%m.%Y   %H.%M.%S'))
-    operations_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    writer = format_xlsx(writer, operations_df, alignments='cllcccccc', sheet_name=sheet_name)
-    writer = colorize_operations_report(writer, operations_df, sheet_name=sheet_name)
-
-    sheet_name = 'Итог по типам операций'
-    total_operations_df = operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum()
-    total_operations_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    writer = format_xlsx(writer, total_operations_df, 'lc', sheet_name=sheet_name)
-
-    sheet_name = 'Валюта'
-    money_df = get_money_df(client)
-    money_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    writer = format_xlsx(writer, money_df, alignments='c' * money_df.shape[1], sheet_name=sheet_name)
+    operations_float_df = round_dataframe_with_decimals(operations_df)
+    operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+    writer = format_xlsx(writer, operations_float_df, alignments='cllcccccc', sheet_name=sheet_name)
+    writer = colorize_operations_report(writer, operations_float_df, sheet_name=sheet_name)
 
     sheet_name = 'Акции'
     stocks_df = get_stocks_df(client)
-    stocks_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_df.shape[1], sheet_name=sheet_name)
+    stocks_float_df = round_dataframe_with_decimals(stocks_df)
+    stocks_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+    writer = format_xlsx(writer, stocks_float_df, alignments='c' * stocks_float_df.shape[1], sheet_name=sheet_name)
+
+    sheet_name = 'Валюта'
+    money_df = get_money_df(client)
+    money_float_df = round_dataframe_with_decimals(money_df)
+    money_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+    writer = format_xlsx(writer, money_float_df, alignments='c' * money_float_df.shape[1], sheet_name=sheet_name)
+
+    sheet_name = 'Итог по типам операций'
+    total_operations_df = pd.DataFrame(operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum())
+    total_operations_float_df = round_dataframe_with_decimals(total_operations_df)
+    total_operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+    writer = format_xlsx(writer, total_operations_float_df, 'lc', sheet_name=sheet_name)
 
     sheet_name = 'Итог по компаниям'
-    operations_by_companies_df = operations_df[operations_df['Название'].str.strip().str.len() > 0].\
-                            groupby(by="Название", as_index=False)['Сумма'].sum()
-    # when calculating the results, we take into account the shares in the portfolio
-    stock_values_lookup = stocks_df.set_index('Название')['Общая стоимость акций'].to_dict()
-    for index, row in operations_by_companies_df.iterrows():
-        company_name = row['Название']
-        if company_name in stock_values_lookup:
-            stock_value_to_add = Decimal(stock_values_lookup[company_name])
-            operations_by_companies_df.loc[index, 'Сумма'] += stock_value_to_add
-    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
-    operations_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
-    operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
-    writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
-    writer = colorize_companies_report(writer, operations_by_companies_df, sheet_name=sheet_name)
+
+    companies = operations_df['Название'].unique()
+    total_by_companies = []
+    for company in companies:
+        total_by_companies.append({
+            'Название': company,
+            'Сумма': operations_df[operations_df['Название'] == company]['Сумма'].sum()
+        })
+    total_by_companies_df = pd.DataFrame(total_by_companies, columns=['Название', 'Сумма'])
+    total_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
+    total_by_companies_float_df = round_dataframe_with_decimals(total_by_companies_df)
+    total_by_companies_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+    writer = format_xlsx(writer, total_by_companies_float_df, 'lc', sheet_name=sheet_name)
+    writer = colorize_companies_report(writer, total_by_companies_float_df, sheet_name=sheet_name)
 
     # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
     # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
@@ -401,7 +424,30 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
 def main() -> None:
     if TOKEN:
         with Client(TOKEN, target=INVEST_GRPC_API) as client:
-            print(get_moex_trading_schedule_by_date(client, now()))
+            td = get_moex_trading_schedule_by_date(client, now())
+            tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
+            dt_formatter = lambda x:  tz_changer(x).strftime("%H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
+            logger.info(f'Дата: {tz_changer(td.date).date()}')
+            logger.info(f'Признак торгового дня на бирже: {"Да" if td.is_trading_day else "Нет"}')
+
+            logger.info(f'Время начала торгов: {dt_formatter(td.start_time)}')
+            logger.info(f'Время окончания торгов: {dt_formatter(td.end_time)}')
+
+            logger.info(f'Время начала аукциона открытия: {dt_formatter(td.opening_auction_start_time)}')
+            logger.info(f'Время окончания аукциона открытия: {dt_formatter(td.opening_auction_end_time)}')
+
+            logger.info(f'Время начала вечерней сессии: {dt_formatter(td.evening_start_time)}')
+            logger.info(f'Время окончания вечерней сессии: {dt_formatter(td.evening_end_time)}')
+
+            logger.info(f'Время начала основного клиринга: {dt_formatter(td.clearing_start_time)}')
+            logger.info(f'Время окончания основного клиринга: {dt_formatter(td.clearing_end_time)}')
+
+            logger.info(f'Время начала премаркета: {dt_formatter(td.premarket_start_time)}')
+            logger.info(f'Время окончания премаркета: {dt_formatter(td.premarket_end_time)}')
+
+            logger.info(f'Время начала аукциона закрытия: {dt_formatter(td.closing_auction_start_time)}')
+            logger.info(f'Время окончания аукциона закрытия: {dt_formatter(td.closing_auction_end_time)}')
+
             clear_or_create_dir(OUTPUT_PATH)
             start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
@@ -409,12 +455,12 @@ def main() -> None:
             end_date = now()
             make_report(client, start_date, end_date, False)
     else:
-        print('Token not found')
+        logger.error('Token not found')
 
 
 if __name__ == '__main__':
     start_time = time.perf_counter()
-    print("Started...")
+    logger.info("Started...")
     main()
     elapsed_time = time.perf_counter() - start_time
-    print(f"Done. Elapsed time {elapsed_time:.1f} seconds")
+    logger.info(f"Done. Elapsed time {elapsed_time:.1f} seconds")
