@@ -2,6 +2,7 @@ import os
 import time
 import pytz
 import requests
+from decimal import Decimal
 import pandas as pd
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -9,16 +10,21 @@ from dotenv import load_dotenv
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
+
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 from tinkoff.invest.services import Services
+from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal
 from tinkoff.invest.constants import INVEST_GRPC_API
-from tinkoff.invest import Client, GetOperationsByCursorRequest
-from tinkoff.invest.schemas import OperationType, OperationState, TradeDirection, CandleInterval
+from tinkoff.invest.clients import Client
+from tinkoff.invest import GetOperationsByCursorRequest, TradingSchedule
+from tinkoff.invest.schemas import OperationState, CandleInterval
 
 from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins
+from libs.report_colorize import colorize_operations_report, colorize_companies_report
+from libs.grpc_schemas_descriptions import operations_types, operations_states, trade_directions
 
 
 pd.set_option('display.max_columns', None)
@@ -35,45 +41,6 @@ IMG_WIDTH, IMG_HEIGHT, IMG_DPI = 3600, 2000, 150
 TOKEN = os.getenv("TOKEN", '')
 CB_CURRENCIES_URL = os.getenv("CB_CURRENCIES_URL")
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
-
-operations_types = {
-    OperationType.OPERATION_TYPE_UNSPECIFIED: 'Неизвестно',
-    OperationType.OPERATION_TYPE_INPUT: 'Пополнение брокерского счета',
-    OperationType.OPERATION_TYPE_OUTPUT: 'Вывод денег',
-    OperationType.OPERATION_TYPE_BUY_CARD: 'Покупка с карты',
-    OperationType.OPERATION_TYPE_BUY: 'Покупка',
-    OperationType.OPERATION_TYPE_SELL: 'Продажа',
-    OperationType.OPERATION_TYPE_BROKER_FEE: 'Комиссия брокера',
-    OperationType.OPERATION_TYPE_DIVIDEND: 'Выплата дивидендов',
-    OperationType.OPERATION_TYPE_TAX: 'Налоги',
-    OperationType.OPERATION_TYPE_OVERNIGHT: 'Овернайт',
-    OperationType.OPERATION_TYPE_DIVIDEND_TAX: 'Налоги c дивидендов',
-    OperationType.OPERATION_TYPE_TAX_CORRECTION: 'Возврат налога',
-    OperationType.OPERATION_TYPE_SERVICE_FEE: 'Комиссия за обслуживание',
-    OperationType.OPERATION_TYPE_BENEFIT_TAX: 'Налог за материальную выгоду',
-    OperationType.OPERATION_TYPE_BENEFIT_TAX_PROGRESSIVE: 'Налог за материальную выгоду по ставке 15%'
-}
-
-operations_states = {
-    OperationState.OPERATION_STATE_UNSPECIFIED: 'Неизвестно',
-    OperationState.OPERATION_STATE_EXECUTED: 'Выполнена',
-    OperationState.OPERATION_STATE_CANCELED: 'Отменена',
-    OperationState.OPERATION_STATE_PROGRESS: 'В процессе'
-}
-
-instrument_types = {
-    'bond': 'облигация',
-    'share': 'акция',
-    'currency': 'валюта',
-    'etf': 'фонд',
-    'futures': 'фьючерс'
-}
-
-trade_directions = {
-    TradeDirection.TRADE_DIRECTION_UNSPECIFIED: 'Направление сделки не определено',
-    TradeDirection.TRADE_DIRECTION_BUY: 'Покупка',
-    TradeDirection.TRADE_DIRECTION_SELL: 'Продажа'
-}
 
 
 def get_cb_currencies_rate() -> dict:
@@ -125,92 +92,28 @@ def get_cb_currencies_rate() -> dict:
 currencies_rates = get_cb_currencies_rate()
 
 
-def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
+def get_moex_trading_schedule_by_date(client: Services, date_: datetime) -> TradingSchedule:
     """
-    Function for coloring cells in an XlsxWriter object based on their values (for total operations report)
-
-    Args:
-        param writer (pandas.io.excel._xlsxwriter._XlsxWriter): object of type XlsxWriter
-        param df (pandas.core.frame.DataFrame): pandas dataframe with data
-        param sheet_name (str): sheet name
+        date	google.protobuf.Timestamp	Дата.
+        is_trading_day	bool	Признак торгового дня на бирже.
+        start_time	google.protobuf.Timestamp	Время начала торгов по UTC.
+        end_time	google.protobuf.Timestamp	Время окончания торгов по UTC.
+        opening_auction_start_time	google.protobuf.Timestamp	Время начала аукциона открытия по UTC.
+        closing_auction_end_time	google.protobuf.Timestamp	Время окончания аукциона закрытия по UTC.
+        evening_opening_auction_start_time	google.protobuf.Timestamp	Время начала аукциона открытия вечерней сессии по UTC.
+        evening_start_time	google.protobuf.Timestamp	Время начала вечерней сессии по UTC.
+        evening_end_time	google.protobuf.Timestamp	Время окончания вечерней сессии по UTC.
+        clearing_start_time	google.protobuf.Timestamp	Время начала основного клиринга по UTC.
+        clearing_end_time	google.protobuf.Timestamp	Время окончания основного клиринга по UTC.
+        premarket_start_time	google.protobuf.Timestamp	Время начала премаркета по UTC.
+        premarket_end_time	google.protobuf.Timestamp	Время окончания премаркета по UTC.
+        closing_auction_start_time	google.protobuf.Timestamp	Время начала аукциона закрытия по UTC.
+        opening_auction_end_time	google.protobuf.Timestamp	Время окончания аукциона открытия по UTC.
+        intervals	Массив объектов TradingInterval	Торговые интервалы.
     """
-    if df.shape[0] > 0:
-        workbook = writer.book
-        worksheet = writer.sheets[sheet_name]
-        header_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'valign': 'vcenter',
-            'align': 'center',
-            'border': 1
-        })
-        for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_format)
-        cells = f'B2:B{df.shape[0] + 1}'
-        condition_format_red = workbook.add_format({'bg_color': '#fa6464'})
-        condition_format_yellow = workbook.add_format({'bg_color': '#faed64'})
-        condition_format_green = workbook.add_format({'bg_color': '#64fa6e'})
-        condition_format_blue = workbook.add_format({'bg_color': '#64c0fa'})
-        condition_format_by_operations_types = {
-            OperationType.OPERATION_TYPE_INPUT: condition_format_blue,
-            OperationType.OPERATION_TYPE_BUY: condition_format_red,
-            OperationType.OPERATION_TYPE_SELL: condition_format_green,
-            OperationType.OPERATION_TYPE_BROKER_FEE: condition_format_red,
-            OperationType.OPERATION_TYPE_OUTPUT: condition_format_yellow,
-        }
-        for operation_type, condition_format in condition_format_by_operations_types.items():
-            worksheet.conditional_format(cells, {
-                'type': 'cell',
-                'criteria': 'equal to',
-                'value': f'"{operations_types[operation_type]}"',
-                'format': condition_format
-            })
-    return writer
-
-def colorize_companies_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
-    """
-    Function for coloring cells in an XlsxWriter object based on their values (for total operations by companies report)
-
-    Args:
-        param writer (pandas.io.excel._xlsxwriter._XlsxWriter): object of type XlsxWriter
-        param df (pandas.core.frame.DataFrame): pandas dataframe with data
-        param sheet_name (str): sheet name
-    """
-    if df.shape[0] > 0:
-        workbook = writer.book
-        worksheet = writer.sheets[sheet_name]
-        condition_format_1 = workbook.add_format({'bg_color': '#fa6464'})  # red
-        condition_format_2 = workbook.add_format({'bg_color': '#faed64'})  # yellow
-        condition_format_3 = workbook.add_format({'bg_color': '#64fa6e'})  # green
-        header_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'valign': 'vcenter',
-            'align': 'center',
-            'border': 1
-        })
-        for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_format)
-        cells = f'B2:B{df.shape[0] + 1}'
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'less than',
-            'value': 0,
-            'format': condition_format_1
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'equal to',
-            'value': 0,
-            'format': condition_format_2
-        })
-        worksheet.conditional_format(cells, {
-            'type': 'cell',
-            'criteria': 'greater than',
-            'value': 0,
-            'format': condition_format_3
-        })
-    return writer
+    td = client.instruments.trading_schedules(exchange='moex', from_=date_, to=date_)
+    ts = td.exchanges[0].days[0]
+    return ts
 
 
 def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path) -> None:
@@ -303,9 +206,9 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
                 "Тикер": r[0].ticker if len(r) > 0 else '',
                 "Название": r[0].name if len(r) > 0 else '',
                 "Тип": r[0].share_type if len(r) > 0 else '',
-                "Сумма": round(operation.payment.units + operation.payment.nano / 1e9, 2),
-                "Цена лота": round(operation.price.units + operation.price.nano / 1e9, 2),
-                "Количество лотов": operation.quantity,
+                "Сумма": money_to_decimal(operation.payment),
+                "Цена лота": quotation_to_decimal(operation.price) if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
+                "Количество лотов": operation.quantity if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
                 "Статус": operations_states[operation.state]
             })
         time.sleep(REQUEST_DELAY_SECONDS)
@@ -343,11 +246,18 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
     for stock in portfolio.positions:
         if stock.instrument_type == 'share':
             r = [x for x in stocks if x.figi == stock.figi]
-            current_price = stock.current_price.units + stock.current_price.nano * 10**-9
-            quantity = stock.quantity.units + stock.quantity.nano * 10**-9
-            quantity_lots = stock.quantity_lots.units + stock.quantity_lots.nano * 10**-9
-            average_position_price = stock.average_position_price.units + stock.average_position_price.nano * 10**-9
-            expected_yield = stock.expected_yield.units + stock.expected_yield.nano * 10**-9
+
+            current_price = money_to_decimal(stock.current_price)
+            quantity = quotation_to_decimal(stock.quantity)
+            quantity_lots = quotation_to_decimal(stock.quantity_lots)
+            average_position_price = money_to_decimal(stock.average_position_price)
+            expected_yield = quotation_to_decimal(stock.expected_yield)
+
+            # current_price = stock.current_price.units + stock.current_price.nano * 10**-9
+            # quantity = stock.quantity.units + stock.quantity.nano * 10**-9
+            # quantity_lots = stock.quantity_lots.units + stock.quantity_lots.nano * 10**-9
+            # average_position_price = stock.average_position_price.units + stock.average_position_price.nano * 10**-9
+            # expected_yield = stock.expected_yield.units + stock.expected_yield.nano * 10**-9
             total_cost = quantity * current_price
             stocks_list.append({
                 "Название": r[0].name if len(r) > 0 else '',
@@ -370,17 +280,17 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
 def get_last_trades(client: Services, figi: str, start_date: datetime, end_date: datetime) -> None:
     trades = client.market_data.get_last_trades(figi=figi, from_=start_date, to=end_date)
     for trade in trades.trades:
-        print(f'{trade_directions[trade.direction]}, количество: {trade.quantity}, цена {trade.price.units + trade.price.nano * 10**-9}')
+        print(f'{trade_directions[trade.direction]}, количество: {trade.quantity}, цена {quotation_to_decimal(trade.price)}')
 
 
 def get_orders(client: Services, figi: str, depth: int) -> None:
     orders = client.market_data.get_order_book(figi=figi, depth=depth)
     # Множество пар значений на покупку
     for bid in orders.bids:
-        print(f'Покупка, количество: {bid.quantity}, цена {bid.price.units + bid.price.nano * 10**-9}')
+        print(f'Покупка, количество: {bid.quantity}, цена {quotation_to_decimal(bid.price)}')
     # Множество пар значений на продажу
     for ask in orders.asks:
-        print(f'Продажа, количество: {ask.quantity}, цена {ask.price.units + ask.price.nano * 10**-9}')
+        print(f'Продажа, количество: {ask.quantity}, цена {quotation_to_decimal(ask.price)}')
 
 
 def get_favourite_instruments(client: Services) -> list[dict[str, str]]:
@@ -400,7 +310,7 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
     for index, row in stocks_df.iterrows():
         cur_stocks_amount['Название'] = row["Количество лотов"]
     stocks_by_date_list = []
-    d = datetime.now().date()
+    d = now().date()
     for k, v in cur_stocks_amount.items():
         stocks_by_date_list.append({
             'Дата': d,
@@ -464,14 +374,14 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     sheet_name = 'Итог по компаниям'
     operations_by_companies_df = operations_df[operations_df['Название'].str.strip().str.len() > 0].\
                             groupby(by="Название", as_index=False)['Сумма'].sum()
-    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
     # when calculating the results, we take into account the shares in the portfolio
     stock_values_lookup = stocks_df.set_index('Название')['Общая стоимость акций'].to_dict()
     for index, row in operations_by_companies_df.iterrows():
         company_name = row['Название']
         if company_name in stock_values_lookup:
-            stock_value_to_add = stock_values_lookup[company_name]
+            stock_value_to_add = Decimal(stock_values_lookup[company_name])
             operations_by_companies_df.loc[index, 'Сумма'] += stock_value_to_add
+    operations_by_companies_df['Сумма'] = operations_by_companies_df['Сумма'].apply(lambda x: round(float(x), 2))
     operations_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
     operations_by_companies_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False)
     writer = format_xlsx(writer, operations_by_companies_df, 'lc', sheet_name=sheet_name)
@@ -494,12 +404,13 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
 def main() -> None:
     if TOKEN:
         with Client(TOKEN, target=INVEST_GRPC_API) as client:
+            print(get_moex_trading_schedule_by_date(client, now()))
             clear_or_create_dir(OUTPUT_PATH)
             start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-            end_date = datetime.now().replace(tzinfo=timezone.utc)
-            make_report(client, start_date, end_date, True)
+            end_date = now()
+            make_report(client, start_date, end_date, False)
     else:
         print('Token not found')
 

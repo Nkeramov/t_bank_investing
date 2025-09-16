@@ -93,7 +93,8 @@ def format_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, alignments: str | None
     for col_index, col_name in enumerate(df.columns):
         col_width = len(col_name)
         if df.shape[0] > 0:
-            col_width = max(col_width, max(len(str(r)) for r in df[col_name])) + 1
+            col_width = max(col_width, max(len(str(r)) for r in df[col_name]))
+        col_width = round(col_width * 1.2)
         cell_format = workbook.add_format()
         cell_format.set_align(a[alignments[col_index]])
         if font_size:
