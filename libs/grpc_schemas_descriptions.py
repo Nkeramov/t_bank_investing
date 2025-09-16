@@ -1,5 +1,5 @@
 from tinkoff.invest.schemas import (OperationType, OperationState, TradeDirection, SecurityTradingStatus,
-                                    InstrumentType, IndicatorType, TypeOfPrice)
+                                    InstrumentType, IndicatorType, TypeOfPrice, OrderDirection, OrderType)
 
 
 operations_types = {
@@ -83,4 +83,17 @@ indicator_types = {
     IndicatorType.INDICATOR_TYPE_RSI: 'Индекс относительной силы',
     IndicatorType.INDICATOR_TYPE_MACD: 'Схождение/расхождение скользящих средних',
     IndicatorType.INDICATOR_TYPE_SMA: 'Простое скользящее среднее'
+}
+
+order_direction = {
+    OrderDirection.ORDER_DIRECTION_UNSPECIFIED: 'Значение не указано',
+    OrderDirection.ORDER_DIRECTION_BUY: 'Покупка',
+    OrderDirection.ORDER_DIRECTION_SELL: 'Продажа'
+}
+
+order_types = {
+    OrderType.ORDER_TYPE_UNSPECIFIED: 'Значение не указано',
+    OrderType.ORDER_TYPE_LIMIT: 'Лимитная',
+    OrderType.ORDER_TYPE_MARKET: 'Рыночная',
+    OrderType.ORDER_TYPE_BESTPRICE: 'Лучшая цена'
 }
