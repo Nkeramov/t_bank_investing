@@ -19,7 +19,7 @@ from tinkoff.invest.services import Services
 from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal
 from tinkoff.invest.constants import INVEST_GRPC_API
 from tinkoff.invest.clients import Client
-from tinkoff.invest import GetOperationsByCursorRequest, TradingSchedule
+from tinkoff.invest import GetOperationsByCursorRequest, TradingSchedule, RequestError
 from tinkoff.invest.schemas import OperationState, CandleInterval
 
 from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins
@@ -196,24 +196,28 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     operations = client.operations.get_operations_by_cursor(get_request())
     operations_list = []
     while operations.has_next:
-        for operation in operations.items:
-            d = operation.date.astimezone(tz=pytz.timezone(TIMEZONE))
-            r = [x for x in stocks if x.figi == operation.figi]
-            operations_list.append({
-                "Дата": d,
-                "Тип операции": operations_types[operation.type],
-                "FIGI": operation.figi,
-                "Тикер": r[0].ticker if len(r) > 0 else '',
-                "Название": r[0].name if len(r) > 0 else '',
-                "Тип": r[0].share_type if len(r) > 0 else '',
-                "Сумма": money_to_decimal(operation.payment),
-                "Цена лота": quotation_to_decimal(operation.price) if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
-                "Количество лотов": operation.quantity if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
-                "Статус": operations_states[operation.state]
-            })
-        time.sleep(REQUEST_DELAY_SECONDS)
-        request = get_request(cursor=operations.next_cursor)
-        operations = client.operations.get_operations_by_cursor(request)
+        try:
+            for operation in operations.items:
+                d = operation.date.astimezone(tz=pytz.timezone(TIMEZONE))
+                r = [x for x in stocks if x.figi == operation.figi]
+                operations_list.append({
+                    "Дата": d,
+                    "Тип операции": operations_types[operation.type],
+                    "FIGI": operation.figi,
+                    "Тикер": r[0].ticker if len(r) > 0 else '',
+                    "Название": r[0].name if len(r) > 0 else '',
+                    "Тип": r[0].share_type if len(r) > 0 else '',
+                    "Сумма": money_to_decimal(operation.payment),
+                    "Цена лота": quotation_to_decimal(operation.price) if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
+                    "Количество лотов": operation.quantity if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
+                    "Статус": operations_states[operation.state]
+                })
+            time.sleep(REQUEST_DELAY_SECONDS)
+            request = get_request(cursor=operations.next_cursor)
+            operations = client.operations.get_operations_by_cursor(request)
+        except RequestError as e:
+            print('Waiting for rate limit reset for ', str(e.metadata.ratelimit_reset + 3), ' sec.')
+            time.sleep(e.metadata.ratelimit_reset + 3)
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
                                                            "Цена лота", "Количество лотов", "Сумма", "Статус"])
     operations_df.sort_values(by='Дата', ascending=True, inplace=True)
@@ -246,18 +250,11 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
     for stock in portfolio.positions:
         if stock.instrument_type == 'share':
             r = [x for x in stocks if x.figi == stock.figi]
-
             current_price = money_to_decimal(stock.current_price)
             quantity = quotation_to_decimal(stock.quantity)
             quantity_lots = quotation_to_decimal(stock.quantity_lots)
             average_position_price = money_to_decimal(stock.average_position_price)
             expected_yield = quotation_to_decimal(stock.expected_yield)
-
-            # current_price = stock.current_price.units + stock.current_price.nano * 10**-9
-            # quantity = stock.quantity.units + stock.quantity.nano * 10**-9
-            # quantity_lots = stock.quantity_lots.units + stock.quantity_lots.nano * 10**-9
-            # average_position_price = stock.average_position_price.units + stock.average_position_price.nano * 10**-9
-            # expected_yield = stock.expected_yield.units + stock.expected_yield.nano * 10**-9
             total_cost = quantity * current_price
             stocks_list.append({
                 "Название": r[0].name if len(r) > 0 else '',
