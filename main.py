@@ -125,9 +125,9 @@ def get_moex_trading_schedule_by_date(client: Services, date_: datetime) -> Trad
 def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path) -> None:
     candles_path = Path(candles_path)
     stocks = client.instruments.shares().instruments
-    st = [x for x in stocks if x.figi == figi]
-    if len(st) > 0:
-        stock = st[0]
+    stock = find_item_by_class_attr(stocks, 'figi', figi)
+    if stock:
+        logger.debug(f'Stock with FIGI={figi} found in shared stocks data')
         # ws = ['blueskies', 'brasil', 'charles', 'checkers', 'classic', 'default', 'mike',
         #       'nightclouds', 'sas', 'starsandstripes', 'yahoo']
         mc = mpf.make_marketcolors(
@@ -138,7 +138,7 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
         style = mpf.make_mpf_style(
             base_mpf_style='yahoo',
             rc={
-                'axes.titlesize': 14,
+                'axes.titlesize': 12,
                 'axes.labelsize': 8,
                 'xtick.labelsize': 6,
                 'ytick.labelsize': 6
@@ -149,12 +149,12 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
             mavcolors=['#4f8a8b', '#fbd46d', '#87556f']
         )
         cd2 = start_date.astimezone(tz=timezone.utc)
-        cd1 = (cd2 - timedelta(days=2))
+        cd1 = (cd2 - timedelta(hours=8))
         candles_list = []
         for candle in client.get_all_candles(
                 figi=figi,
                 from_=cd1, to=cd2,
-                interval=CandleInterval.CANDLE_INTERVAL_30_MIN,
+                interval=CandleInterval.CANDLE_INTERVAL_5_MIN,
         ):
                 candles_list.append({
                     "Date": candle.time,
@@ -168,18 +168,19 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
             candles_df = pd.DataFrame(candles_list, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
             candles_df['Date'] = candles_df['Date'].dt.tz_convert(TIMEZONE)
             candles_df.set_index('Date', inplace=True)
-            title = f"\n\n\n\n{stock.ticker} {stock.name} {cd1.strftime('%d.%m.%Y')} - {cd2.strftime('%d.%m.%Y')}"
-            fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m.%y %H:%M', figratio=(16, 9),
+            title = f"\n\n\n\n{stock.ticker} {stock.name} {datetime_formatter(cd1)} - {datetime_formatter(cd2)}"
+            fig, axes = mpf.plot(candles_df, type='candle', datetime_format='%d.%m  %H:%M', figratio=(16, 9),
                                  volume=False, returnfig=True, xlabel= 'Time', ylabel='Price', xrotation=45,
                                  show_nontrading=True, style=style, axtitle=title, tight_layout=True,)
             ax = axes[0]
-            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=60))
+            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
             filename = candles_path / f'{stock.ticker}.png'
             fig.savefig(filename, dpi=600, bbox_inches='tight' )
             plt.close()
             crop_image_white_margins(old_filename=filename, new_filename= filename)
+            logger.debug(f"Successfully saved candles for stock with FIGI={stock.name}, Name={stock.name}")
         else:
-            logger.warning(f'Candles for stock with FIGI={figi} not found')
+            logger.warning(f'Candles for stock with FIGI={stock.name}, Name={stock.name} not found')
     else:
         logger.warning(f'Stock with FIGI={figi} not found in shared stocks data')
 
