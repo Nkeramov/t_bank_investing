@@ -267,14 +267,15 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
                 "Название": r[0].name if len(r) > 0 else '',
                 "FIGI": stock.figi,
                 "Тикер": r[0].ticker if len(r) > 0 else '',
+                "UID": stock.instrument_uid,
                 "Текущая цена акции": current_price,
                 "Количество акций": quantity,
                 "Количество лотов": quantity_lots,
                 "Общая стоимость акций": total_cost,
                 "Средневзвешенная цена акции": average_position_price,
-                "Доход за все время": expected_yield}
-            )
-    stocks_df = pd.DataFrame(stocks_list, columns=["Название", "FIGI", "Тикер", "Количество акций",
+                "Доход за все время": expected_yield
+            })
+    stocks_df = pd.DataFrame(stocks_list, columns=["Название", "FIGI", "Тикер", "UID", "Количество акций",
                                                   "Количество лотов", "Текущая цена акции",
                                                   "Средневзвешенная цена акции", "Общая стоимость акций",
                                                   "Доход за все время"])
