@@ -134,3 +134,23 @@ def crop_image_white_margins(old_filename: str | Path, xpadding: int = 15, ypadd
         im_buf_arr.tofile(old_filename)
     else:
         im_buf_arr.tofile(new_filename)
+
+
+def get_entity_with_case(x, word_forms: tuple[str, str, str] = ('день', 'дня', 'дней')) -> str:
+    """
+    Function for determining the declension of a noun following a numeral
+
+    Args:
+        x: numeric value
+        word_forms: tuple of string declension values (for 1, for 2-4, for 5-0)
+    """
+    n = abs(x) % 100
+    if 10 < n < 20:
+        return word_forms[2]
+    n1 = n % 10
+    if n1 == 1:
+        return word_forms[0]
+    elif 1 < n1 < 5:
+        return word_forms[1]
+    else:
+        return word_forms[2]
