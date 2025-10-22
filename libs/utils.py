@@ -98,7 +98,7 @@ def format_xlsx(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'She
                 border_color: str | None = None, cell_height: int = 20) -> pd.ExcelWriter:
     """
     Function for formatting an object of XlsxWriter type.
-    Allows to set alignment for each column and adjust cells height.
+    Allows to set alignment for each column, adjust cells height, border color, border width and font size.
 
     Args:
         writer: object of XlsxWriter type
@@ -159,38 +159,35 @@ def get_entity_with_case(x, word_forms: tuple[str, str, str] = ('день', 'д�
 def decimal_to_float_n_decimals(value: Decimal, decimals: int = 6) -> float:
     """
     Convert a Decimal value to float with specified decimal precision.
-
     Rounds the Decimal value to the specified number of decimals using
     ROUND_HALF_UP rounding mode before converting to float.
 
     Args:
-        value (Decimal): The Decimal value to convert
-        decimals (int, optional): Number of decimal places to keep. Defaults to 6.
+        value: decimal value to convert
+        decimals: number of decimal places to keep. Defaults to 6.
 
     Returns:
-        float: The rounded float value, or original value if not a Decimal
+        float: rounded float value, or original value if not a Decimal
     """
     if isinstance(value, Decimal):
-        return float(value.quantize(Decimal(f'10e-{decimals - 1}'), rounding=ROUND_HALF_UP))
-    return value
+        value = value.quantize(Decimal(f'10e-{decimals - 1}'), rounding=ROUND_HALF_UP)
+    return float(value)
 
 
 def round_dataframe_with_decimals(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
     """
     Round Decimal columns in a DataFrame to specified decimal precision.
-
     Creates a copy of the DataFrame and converts all Decimal columns to float
     with the specified number of decimal places using half-up rounding.
 
     Args:
-        df (pd.DataFrame): The DataFrame to process
-        decimals (int, optional): Number of decimal places for rounding. Defaults to 6.
+        df: dataFrame to process
+        decimals: number of decimal places for rounding. Defaults to 6.
 
     Returns:
-        pd.DataFrame: A new DataFrame with Decimal columns converted to rounded floats
+        pd.DataFrame: new DataFrame with Decimal columns converted to rounded floats
     """
     df_to_save = df.copy()
-
     for column in df_to_save.columns:
         if df_to_save[column].apply(lambda x: isinstance(x, Decimal)).any():
             df_to_save[column] = df_to_save[column].apply(lambda x: decimal_to_float_n_decimals(x, decimals))
@@ -204,10 +201,10 @@ def get_unique_non_empty(series: pd.Series) -> ndarray[tuple[Any, ...], dtype[An
     then returns the unique values from the remaining elements.
 
     Args:
-        series: The Series to extract unique values from
+        series: series to extract unique values from
 
     Returns:
-        ndarray: Array of unique non-empty values from the Series
+        ndarray: array of unique non-empty values from the Series
     """
     return series[series.notna() & (series.str.strip().str.len() > 0)].unique()
 
@@ -219,12 +216,12 @@ def find_item_by_dict_key(lst: list, key: str, value: Any) -> Any:
     that contains the specified key with the matching value.
 
     Args:
-        lst: List of dictionaries to search through
-        key: Dictionary key to check
-        value: Value to match against the specified key
+        lst: list of dictionaries to search through
+        key: dictionary key to check
+        value: value to match against the specified key
 
     Returns:
-        Any: The matching dictionary item, or None if no match found
+        Any: matching dictionary item, or None if no match found
     """
     return next((item for item in lst if item.get(key) == value), None)
 
@@ -236,11 +233,11 @@ def find_item_by_class_attr(lst: list, attr_name: str, value: Any) -> Any:
     that has the specified attribute with the matching value.
 
     Args:
-        lst: List of class instances to search through
-        attr_name: Attribute name to check
-        value: Value to match against the specified attribute
+        lst: list of class instances to search through
+        attr_name: attribute name to check
+        value: value to match against the specified attribute
 
     Returns:
-        Any: The matching class instance, or None if no match found
+        Any: matching class instance, or None if no match found
     """
     return next((item for item in lst if getattr(item, attr_name, None) == value), None)
