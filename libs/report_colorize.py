@@ -1,5 +1,5 @@
 import pandas as pd
-from .grpc_schemas_descriptions import OperationType, operations_types
+from .grpc_schemas import OperationType, operations_types
 
 def colorize_operations_report(writer: pd.ExcelWriter, df: pd.DataFrame, sheet_name: str = 'Sheet1') -> pd.ExcelWriter:
     """
