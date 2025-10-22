@@ -423,6 +423,64 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
         make_candle_charts(client, figi_lst, start_date, end_date)
 
 
+def get_instrument_id_by_ticker(client: Services, ticker: str) -> str:
+    r = client.instruments.get_instrument_by(
+        id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_TICKER,
+        id=ticker,
+        class_code="TQBR",
+    )
+    return r.instrument.uid
+
+
+def get_indicatives_info(client: Services) -> list:
+    request = IndicativesRequest()
+    indicatives = client.instruments.indicatives(request=request)
+    indicatives_last_prices = []
+    for instrument in indicatives.instruments:
+
+        last_prices = client.market_data.get_last_prices(
+                instrument_id=[instrument.uid],
+                instrument_status=InstrumentStatus.INSTRUMENT_STATUS_ALL,
+            ).last_prices
+        last_price_time = last_prices[0].time
+        last_price_decimal = last_prices[0].price
+        last_price_float = decimal_to_float_n_decimals(quotation_to_decimal(last_price_decimal))
+        indicatives_last_prices.append({
+            'name': instrument.name,
+            'uid': instrument.uid,
+            'figi': instrument.figi,
+            'ticker': instrument.ticker,
+            'currency': instrument.currency,
+            'last_price': last_price_float,
+            'time': last_price_time
+        })
+        logger.info(indicatives_last_prices[-1])
+    return  indicatives_last_prices
+
+
+def get_tech_analysis_indicator(client: Services, ticker: str, indicator_type: IndicatorType,
+                                indicator_interval: IndicatorInterval = IndicatorInterval.INDICATOR_INTERVAL_FIFTEEN_MINUTES) -> list[Decimal]:
+    if indicator_type == IndicatorType.INDICATOR_TYPE_MACD:
+        smoothing = Smoothing(fast_length=8, slow_length=17, signal_smoothing=9)
+    else:
+        smoothing = Smoothing(fast_length=13, slow_length=7, signal_smoothing=3)
+    request = GetTechAnalysisRequest(
+        indicator_type=indicator_type,
+        instrument_uid=get_instrument_id_by_ticker(client, ticker),
+        from_=now() - timedelta(hours=1, minutes=30),
+        to=now(),
+        interval=indicator_interval,
+        type_of_price=TypeOfPrice.TYPE_OF_PRICE_AVG,
+        length=14,
+        deviation=Deviation(
+            deviation_multiplier=decimal_to_quotation(Decimal(1.0)),
+        ),
+        smoothing=smoothing,
+    )
+    response = client.market_data.get_tech_analysis(request=request)
+    return [quotation_to_decimal(indicator.signal) for indicator in response.technical_indicators]
+
+
 def main() -> None:
     if TOKEN:
         with Client(TOKEN, target=INVEST_GRPC_API) as client:
