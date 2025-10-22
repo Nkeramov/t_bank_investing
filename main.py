@@ -3,18 +3,17 @@ import time
 import pytz
 import requests
 import pandas as pd
-from typing import Any
 from pathlib import Path
+from decimal import Decimal
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from collections import OrderedDict
-from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from numpy import ndarray, dtype
+
 
 from tinkoff.invest.clients import Client
 from tinkoff.invest.services import Services
@@ -27,7 +26,8 @@ from tinkoff.invest.schemas import (OperationState, CandleInterval, TradingDay, 
                                     Smoothing, IndicativesRequest, InstrumentStatus)
 
 
-from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins, get_entity_with_case
+from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins, get_entity_with_case, \
+    find_item_by_class_attr, get_unique_non_empty, round_dataframe_with_decimals, decimal_to_float_n_decimals
 from libs.report_colorize import colorize_operations_report, colorize_companies_report
 from libs.grpc_schemas import operations_types, operations_states, trade_directions
 from libs.telegram_utils import TelegramService
@@ -223,8 +223,10 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
                     "Название": r[0].name if len(r) > 0 else '',
                     "Тип": r[0].share_type if len(r) > 0 else '',
                     "Сумма": money_to_decimal(operation.payment),
-                    "Цена лота": quotation_to_decimal(operation.price) if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
-                    "Количество лотов": operation.quantity if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
+                    "Цена лота": quotation_to_decimal(operation.price)
+                        if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
+                    "Количество лотов": operation.quantity_done
+                        if operations_types[operation.type].startswith(('Продажа', 'Покупка')) else None,
                     "Статус": operations_states[operation.state]
                 })
             time.sleep(REQUEST_DELAY_SECONDS)
@@ -317,6 +319,7 @@ def get_favourite_instruments(client: Services) -> list[dict[str, str]]:
         } for i in favourite.favorite_instruments
     ]
 
+
 def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> pd.DataFrame:
     cur_stocks_amount = {}
     for index, row in stocks_df.iterrows():
@@ -350,7 +353,7 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
     return stocks_by_date_df
 
 
-def make_candle_charts(client: Services, figi_lst: list[str], start_date: datetime, end_date: datetime) -> None:
+def make_candle_charts(client: Services, figi_lst: set[str], start_date: datetime, end_date: datetime) -> None:
     candles_path = OUTPUT_PATH / 'candles'
     clear_or_create_dir(candles_path)
     for figi in figi_lst:
@@ -359,19 +362,6 @@ def make_candle_charts(client: Services, figi_lst: list[str], start_date: dateti
 
 
 def make_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
-    def decimal_to_float_6_decimals(value):
-        if isinstance(value, Decimal):
-            return float(value.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP))
-        return value
-
-    def round_dataframe_with_decimals(df: pd.DataFrame) -> pd.DataFrame:
-        df_to_save = df.copy()
-
-        for column in df_to_save.columns:
-            if df_to_save[column].apply(lambda x: isinstance(x, Decimal)).any():
-                df_to_save[column] = df_to_save[column].apply(decimal_to_float_6_decimals)
-        return df_to_save
-
     filename = f"{OUTPUT_PATH}/report.xlsx"
     writer = pd.ExcelWriter(filename, engine='xlsxwriter')
 
@@ -399,11 +389,9 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     total_operations_df = pd.DataFrame(operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum())
     total_operations_float_df = round_dataframe_with_decimals(total_operations_df)
     total_operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, total_operations_float_df, 'lc', sheet_name=sheet_name)
-
+    writer = format_xlsx(writer, total_operations_float_df, sheet_name=sheet_name, alignments='lc')
     sheet_name = 'Итог по компаниям'
-
-    companies = operations_df['Название'].unique()
+    companies = get_unique_non_empty(operations_df['Название'])
     total_by_companies = []
     for company in companies:
         total_by_companies.append({
@@ -414,7 +402,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     total_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
     total_by_companies_float_df = round_dataframe_with_decimals(total_by_companies_df)
     total_by_companies_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, total_by_companies_float_df, 'lc', sheet_name=sheet_name)
+    writer = format_xlsx(writer, total_by_companies_float_df, sheet_name=sheet_name, alignments='lc')
     writer = colorize_companies_report(writer, total_by_companies_float_df, sheet_name=sheet_name)
 
     # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
@@ -424,10 +412,9 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
 
     if draw_candles:
         # collection of tickers as the sum of tickers from the favorites and tickers for which there were operations
-        figi_lst = [instrument['figi'] for instrument in get_favourite_instruments(client)]
-        for figi in operations_df['FIGI'].dropna().unique():
-            if figi != '' and figi not in figi:
-                figi_lst.append(figi)
+        figi_lst = {instrument['figi'] for instrument in get_favourite_instruments(client)}
+        operations_figi_list = get_unique_non_empty(operations_df['FIGI'])
+        figi_lst.union(operations_figi_list)
         make_candle_charts(client, figi_lst, start_date, end_date)
 
 
