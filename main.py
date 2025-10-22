@@ -3,28 +3,36 @@ import time
 import pytz
 import requests
 import pandas as pd
+from typing import Any
 from pathlib import Path
-from decimal import Decimal, ROUND_HALF_UP
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from collections import OrderedDict
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta, timezone
 
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from numpy import ndarray, dtype
 
-from tinkoff.invest.services import Services
-from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal
-from tinkoff.invest.constants import INVEST_GRPC_API
 from tinkoff.invest.clients import Client
+from tinkoff.invest.services import Services
+from tinkoff.invest.constants import INVEST_GRPC_API
 from tinkoff.invest import GetOperationsByCursorRequest, RequestError
-from tinkoff.invest.schemas import OperationState, CandleInterval, TradingDay
+from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal, decimal_to_quotation
+from tinkoff.invest.schemas import (OperationState, CandleInterval, TradingDay, GetSignalsRequest, SignalState, \
+                                    InstrumentIdType, Deviation, IndicatorType, GetTechAnalysisRequest,
+                                    IndicatorInterval, TypeOfPrice,
+                                    Smoothing, IndicativesRequest, InstrumentStatus)
 
-from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins
+
+from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins, get_entity_with_case
 from libs.report_colorize import colorize_operations_report, colorize_companies_report
-from libs.grpc_schemas_descriptions import operations_types, operations_states, trade_directions
+from libs.grpc_schemas import operations_types, operations_states, trade_directions
+from libs.telegram_utils import TelegramService
 from libs.log_utils import LoggerSingleton
+
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
