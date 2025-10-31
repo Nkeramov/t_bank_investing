@@ -190,7 +190,9 @@ def round_dataframe_with_decimals(df: pd.DataFrame, decimals: int = 6) -> pd.Dat
     df_to_save = df.copy()
     for column in df_to_save.columns:
         if df_to_save[column].apply(lambda x: isinstance(x, Decimal)).any():
-            df_to_save[column] = df_to_save[column].apply(lambda x: decimal_to_float_n_decimals(x, decimals))
+            df_to_save[column] = df_to_save[column].apply(
+                lambda x: decimal_to_float_n_decimals(x, decimals) if x is not None else None
+            )
     return df_to_save
 
 
