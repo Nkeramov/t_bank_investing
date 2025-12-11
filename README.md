@@ -13,3 +13,9 @@ The application uses [T-Invest API](https://developer.tbank.ru/invest/intro/intr
 The application requires an API token to read information about your brokerage account and completed transactions. The token is used only for reading. Add your token to environment file.
 
 The application is not able to perform operations on the exchange.
+
+## 📚 References 
+
+- [T-Invest API](https://developer.tbank.ru/invest/intro/intro)
+- [Invest Python gRPC client](https://github.com/RussianInvestments/invest-python)
+- [tinkoff-investments on PyPI](https://pypi.org/project/tinkoff-investments/)
