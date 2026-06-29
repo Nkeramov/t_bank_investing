@@ -145,10 +145,12 @@ def safe_get_candles(client, figi, from_, to, interval):
     return list(client.get_all_candles(figi=figi, from_=from_, to=to, interval=interval))
 
 
-def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path) -> None:
+def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path,
+                      stocks_cache: list = None) -> None:
     candles_path = Path(candles_path)
-    stocks = client.instruments.shares().instruments
-    stock = find_item_by_class_attr(stocks, 'figi', figi)
+    if stocks_cache is None:
+        stocks_cache = client.instruments.shares().instruments
+    stock = find_item_by_class_attr(stocks_cache, 'figi', figi)
     if stock:
         logger.debug(f'Stock with FIGI={figi} found in shared stocks data')
         # ws = ['blueskies', 'brasil', 'charles', 'checkers', 'classic', 'default', 'mike',
@@ -375,8 +377,9 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
 def make_candle_charts(client: Services, figi_lst: set[str], start_date: datetime, end_date: datetime) -> None:
     candles_path = OUTPUT_PATH / 'candles'
     clear_or_create_dir(candles_path)
+    stocks = client.instruments.shares().instruments
     for figi in figi_lst:
-        get_stock_candles(client, figi, end_date, candles_path)
+        get_stock_candles(client, figi, end_date, candles_path, stocks_cache=stocks)
         time.sleep(REQUEST_DELAY_SECONDS)
 
 
