@@ -55,7 +55,7 @@ REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
 logger = LoggerSingleton(
     log_dir=Path('logs'),
     log_file="app.log",
-    level="INFO",
+    level="DEBUG",
     colored=True
 ).get_logger()
 tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
@@ -254,6 +254,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
                                                            "Цена лота", "Количество лотов", "Сумма", "Статус"])
     operations_df.sort_values(by='Дата', ascending=True, inplace=True)
+    logger.info("Operations dataframe successfully built")
     return operations_df
 
 
@@ -272,6 +273,7 @@ def get_money_df(client: Services) -> pd.DataFrame:
                 "Сумма в рублях": currency_balance
             })
     money_df = pd.DataFrame(money_list, columns=["Валюта", "Сумма", "Сумма в рублях"])
+    logger.info("Currencies dataframe successfully built")
     return money_df
 
 
@@ -305,6 +307,7 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
                                                   "Количество лотов", "Текущая цена акции",
                                                   "Средневзвешенная цена акции", "Общая стоимость акций",
                                                   "Доход за все время"])
+    logger.info("Stocks dataframe successfully built")
     return stocks_df
 
 
@@ -406,20 +409,17 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     total_operations_float_df = round_dataframe_with_decimals(total_operations_df)
     total_operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
     writer = format_xlsx(writer, total_operations_float_df, sheet_name=sheet_name, alignments='lc')
+    logger.info("Total by operations types dataframe successfully built")
+
     sheet_name = 'Итог по компаниям'
-    companies = get_unique_non_empty(operations_df['Название'])
-    total_by_companies = []
-    for company in companies:
-        total_by_companies.append({
-            'Название': company,
-            'Сумма': operations_df[operations_df['Название'] == company]['Сумма'].sum()
-        })
-    total_by_companies_df = pd.DataFrame(total_by_companies, columns=['Название', 'Сумма'])
+    mask = (operations_df['Название'].notna() & (operations_df['Название'].str.strip().str.len() > 0))
+    total_by_companies_df = pd.DataFrame(operations_df[mask].groupby('Название', as_index=False)['Сумма'].sum())
     total_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
     total_by_companies_float_df = round_dataframe_with_decimals(total_by_companies_df)
     total_by_companies_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
     writer = format_xlsx(writer, total_by_companies_float_df, sheet_name=sheet_name, alignments='lc')
     writer = colorize_companies_report(writer, total_by_companies_float_df, sheet_name=sheet_name)
+    logger.info("Total by companies dataframe successfully built")
 
     # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
     # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
@@ -498,32 +498,21 @@ def main() -> None:
         retry_settings = RetryClientSettings(use_retry=True, max_retry_attempt=2)
         with RetryingClient(INVEST_TOKEN, target=INVEST_GRPC_API, settings=retry_settings) as client:
             td = get_moex_trading_schedule_by_date(client, now())
-            tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
-            dt_formatter = lambda x:  tz_changer(x).strftime("%H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
-            logger.info(f'Дата: {tz_changer(td.date).date()}')
             logger.info(f'Признак торгового дня на бирже: {"Да" if td.is_trading_day else "Нет"}')
+            logger.info(f'Время начала торгов: {datetime_formatter(td.start_time)}')
+            logger.info(f'Время окончания торгов: {datetime_formatter(td.end_time)}')
+            logger.info(f'Время начала аукциона открытия: {datetime_formatter(td.opening_auction_start_time)}')
+            logger.info(f'Время окончания аукциона открытия: {datetime_formatter(td.opening_auction_end_time)}')
+            logger.info(f'Время начала вечерней сессии: {datetime_formatter(td.evening_start_time)}')
+            logger.info(f'Время окончания вечерней сессии: {datetime_formatter(td.evening_end_time)}')
+            logger.info(f'Время начала основного клиринга: {datetime_formatter(td.clearing_start_time)}')
+            logger.info(f'Время окончания основного клиринга: {datetime_formatter(td.clearing_end_time)}')
+            logger.info(f'Время начала премаркета: {datetime_formatter(td.premarket_start_time)}')
+            logger.info(f'Время окончания премаркета: {datetime_formatter(td.premarket_end_time)}')
+            logger.info(f'Время начала аукциона закрытия: {datetime_formatter(td.closing_auction_start_time)}')
+            logger.info(f'Время окончания аукциона закрытия: {datetime_formatter(td.closing_auction_end_time)}')
 
-            logger.info(f'Время начала торгов: {dt_formatter(td.start_time)}')
-            logger.info(f'Время окончания торгов: {dt_formatter(td.end_time)}')
-
-            logger.info(f'Время начала аукциона открытия: {dt_formatter(td.opening_auction_start_time)}')
-            logger.info(f'Время окончания аукциона открытия: {dt_formatter(td.opening_auction_end_time)}')
-
-            logger.info(f'Время начала вечерней сессии: {dt_formatter(td.evening_start_time)}')
-            logger.info(f'Время окончания вечерней сессии: {dt_formatter(td.evening_end_time)}')
-
-            logger.info(f'Время начала основного клиринга: {dt_formatter(td.clearing_start_time)}')
-            logger.info(f'Время окончания основного клиринга: {dt_formatter(td.clearing_end_time)}')
-
-            logger.info(f'Время начала премаркета: {dt_formatter(td.premarket_start_time)}')
-            logger.info(f'Время окончания премаркета: {dt_formatter(td.premarket_end_time)}')
-
-            logger.info(f'Время начала аукциона закрытия: {dt_formatter(td.closing_auction_start_time)}')
-            logger.info(f'Время окончания аукциона закрытия: {dt_formatter(td.closing_auction_end_time)}')
-
-            start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-            # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
-            # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
+            start_date = datetime(2026, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             end_date = now()
             make_report(client, start_date, end_date, False)
     else:
