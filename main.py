@@ -24,6 +24,10 @@ from t_tech.invest.schemas import (OperationState, CandleInterval, TradingDay, G
                                     InstrumentIdType, Deviation, IndicatorType, GetTechAnalysisRequest,
                                     IndicatorInterval, TypeOfPrice,
                                     Smoothing, IndicativesRequest, InstrumentStatus)
+from t_tech.invest.retrying.settings import RetryClientSettings
+from t_tech.invest.retrying.sync.client import RetryingClient
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from t_tech.invest.exceptions import RequestError
 
 
 from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins, get_entity_with_case, \
@@ -129,6 +133,15 @@ def get_moex_trading_schedule_by_date(client: Services, date_: datetime) -> Trad
     return ts
 
 
+@retry(
+    retry=retry_if_exception_type(RequestError),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(5)
+)
+def safe_get_candles(client, figi, from_, to, interval):
+    return list(client.get_all_candles(figi=figi, from_=from_, to=to, interval=interval))
+
+
 def get_stock_candles(client: Services, figi: str, start_date: datetime, candles_path: str | Path) -> None:
     candles_path = Path(candles_path)
     stocks = client.instruments.shares().instruments
@@ -158,7 +171,8 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
         cd2 = start_date.astimezone(tz=timezone.utc)
         cd1 = (cd2 - timedelta(hours=8))
         candles_list = []
-        for candle in client.get_all_candles(
+        for candle in safe_get_candles(
+                client=client,
                 figi=figi,
                 from_=cd1, to=cd2,
                 interval=CandleInterval.CANDLE_INTERVAL_5_MIN,
@@ -477,7 +491,9 @@ def get_tech_analysis_indicator(client: Services, ticker: str, indicator_type: I
 
 def main() -> None:
     if TOKEN:
-        with Client(TOKEN, target=INVEST_GRPC_API) as client:
+        clear_or_create_dir(OUTPUT_PATH)
+        retry_settings = RetryClientSettings(use_retry=True, max_retry_attempt=2)
+        with RetryingClient(TOKEN, target=INVEST_GRPC_API, settings=retry_settings) as client:
             td = get_moex_trading_schedule_by_date(client, now())
             tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
             dt_formatter = lambda x:  tz_changer(x).strftime("%H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
@@ -502,7 +518,6 @@ def main() -> None:
             logger.info(f'Время начала аукциона закрытия: {dt_formatter(td.closing_auction_start_time)}')
             logger.info(f'Время окончания аукциона закрытия: {dt_formatter(td.closing_auction_end_time)}')
 
-            clear_or_create_dir(OUTPUT_PATH)
             start_date = datetime(2024, 10, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # start_date = datetime(2025, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             # end_date = datetime(2024, 11, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
