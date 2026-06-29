@@ -58,6 +58,9 @@ logger = LoggerSingleton(
     level="INFO",
     colored=True
 ).get_logger()
+tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
+time_formatter = lambda x:  tz_changer(x).strftime("%H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
+datetime_formatter = lambda x:  tz_changer(x).strftime("%Y.%d.%m %H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
 
 
 def get_cb_currencies_rate() -> dict:
@@ -380,7 +383,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
 
     sheet_name = 'Операции'
     operations_df = get_operations_df(client, start_date, end_date)
-    operations_df['Дата'] = operations_df['Дата'].apply(lambda x: x.strftime('%d.%m.%Y   %H.%M.%S'))
+    operations_df['Дата'] = operations_df['Дата'].apply(datetime_formatter)
     operations_float_df = round_dataframe_with_decimals(operations_df)
     operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
     writer = format_xlsx(writer, operations_float_df, alignments='cllcccccc', sheet_name=sheet_name)
