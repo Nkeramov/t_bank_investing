@@ -48,7 +48,7 @@ time.tzset()
 INPUT_PATH = Path(os.getenv("INPUT_PATH"))
 OUTPUT_PATH = Path(os.getenv("OUTPUT_PATH"))
 IMG_WIDTH, IMG_HEIGHT, IMG_DPI = 3600, 2000, 150
-TOKEN = os.getenv("TOKEN", '')
+INVEST_TOKEN = os.getenv("INVEST_TOKEN", '')
 CB_CURRENCIES_URL = os.getenv("CB_CURRENCIES_URL")
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS"))
 
@@ -490,10 +490,10 @@ def get_tech_analysis_indicator(client: Services, ticker: str, indicator_type: I
 
 
 def main() -> None:
-    if TOKEN:
+    if INVEST_TOKEN:
         clear_or_create_dir(OUTPUT_PATH)
         retry_settings = RetryClientSettings(use_retry=True, max_retry_attempt=2)
-        with RetryingClient(TOKEN, target=INVEST_GRPC_API, settings=retry_settings) as client:
+        with RetryingClient(INVEST_TOKEN, target=INVEST_GRPC_API, settings=retry_settings) as client:
             td = get_moex_trading_schedule_by_date(client, now())
             tz_changer = lambda x: x.astimezone(tz=pytz.timezone(TIMEZONE))
             dt_formatter = lambda x:  tz_changer(x).strftime("%H:%M:%S") if tz_changer(x).timestamp() > 0 else 'Неизвестно'
