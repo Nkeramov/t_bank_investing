@@ -15,12 +15,12 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 
-from tinkoff.invest.clients import Client
-from tinkoff.invest.services import Services
-from tinkoff.invest.constants import INVEST_GRPC_API
-from tinkoff.invest import GetOperationsByCursorRequest, RequestError
-from tinkoff.invest.utils import now, money_to_decimal, quotation_to_decimal, decimal_to_quotation
-from tinkoff.invest.schemas import (OperationState, CandleInterval, TradingDay, GetSignalsRequest, SignalState, \
+from t_tech.invest.clients import Client
+from t_tech.invest.services import Services
+from t_tech.invest.constants import INVEST_GRPC_API
+from t_tech.invest import GetOperationsByCursorRequest, RequestError
+from t_tech.invest.utils import now, money_to_decimal, quotation_to_decimal, decimal_to_quotation
+from t_tech.invest.schemas import (OperationState, CandleInterval, TradingDay, GetSignalsRequest, SignalState, \
                                     InstrumentIdType, Deviation, IndicatorType, GetTechAnalysisRequest,
                                     IndicatorInterval, TypeOfPrice,
                                     Smoothing, IndicativesRequest, InstrumentStatus)
@@ -30,7 +30,6 @@ from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margin
     find_item_by_class_attr, get_unique_non_empty, round_dataframe_with_decimals, decimal_to_float_n_decimals
 from libs.report_colorize import colorize_operations_report, colorize_companies_report
 from libs.grpc_schemas import operations_types, operations_states, trade_directions
-from libs.telegram_utils import TelegramService
 from libs.log_utils import LoggerSingleton
 
 

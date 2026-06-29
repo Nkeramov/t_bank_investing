@@ -29,7 +29,7 @@ dependencies = [
     "beautifulsoup4 == 4.14.3",
     "opencv-python >= 4.8.1.78",
     "charset-normalizer == 3.4.7",
-    "tinkoff-investments @ file:////home/nizam/ide/PycharmProjects/invest-python",
+    "t-tech-investments",
 ]
 
 keywords = ["python", "trading", "investing", "tinkoff", "analysis"]
@@ -105,3 +105,6 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 skip-magic-trailing-comma = false
+
+[tool.uv]
+extra-index-url = ["https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple"]

@@ -1,4 +1,4 @@
-from tinkoff.invest.schemas import (OperationType, OperationState, TradeDirection, SecurityTradingStatus,
+from t_tech.invest.schemas import (OperationType, OperationState, TradeDirection, SecurityTradingStatus,
                                     InstrumentType, IndicatorType, TypeOfPrice, OrderDirection, OrderType)
 
 
