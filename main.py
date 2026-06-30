@@ -15,15 +15,15 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 
-from t_tech.invest.clients import Client
 from t_tech.invest.services import Services
 from t_tech.invest.constants import INVEST_GRPC_API
-from t_tech.invest import GetOperationsByCursorRequest, RequestError
+from t_tech.invest import GetOperationsByCursorRequest, RequestError, GetAccountsRequest
 from t_tech.invest.utils import now, money_to_decimal, quotation_to_decimal, decimal_to_quotation
 from t_tech.invest.schemas import (OperationState, CandleInterval, TradingDay, GetSignalsRequest, SignalState, \
                                     InstrumentIdType, Deviation, IndicatorType, GetTechAnalysisRequest,
                                     IndicatorInterval, TypeOfPrice,
                                     Smoothing, IndicativesRequest, InstrumentStatus)
+
 from t_tech.invest.retrying.settings import RetryClientSettings
 from t_tech.invest.retrying.sync.client import RetryingClient
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
@@ -36,6 +36,8 @@ from libs.report_colorize import colorize_operations_report, colorize_companies_
 from libs.grpc_schemas import operations_types, operations_states, trade_directions
 from libs.log_utils import LoggerSingleton
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
