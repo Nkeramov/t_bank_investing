@@ -385,9 +385,10 @@ def make_candle_charts(client: Services, figi_lst: set[str], start_date: datetim
         time.sleep(REQUEST_DELAY_SECONDS)
 
 
-def make_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
+def build_account_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
     filename = f"{OUTPUT_PATH}/report.xlsx"
     writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+    logger.info("Account report building started")
 
     sheet_name = 'Операции'
     operations_df = get_operations_df(client, start_date, end_date)
@@ -430,6 +431,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
     # writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_by_date_df.shape[1], sheet_name='Портфель на дату')
     writer.close()
+    logger.info("Account report successfully saved")
 
     if draw_candles:
         # collection of tickers as the sum of tickers from the favorites and tickers for which there were operations
@@ -437,6 +439,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
         operations_figi_list = get_unique_non_empty(operations_df['FIGI'])
         figi_lst.union(operations_figi_list)
         make_candle_charts(client, figi_lst, start_date, end_date)
+        logger.info("Candles successfully saved")
 
 
 def get_instrument_id_by_ticker(client: Services, ticker: str) -> str:
@@ -519,7 +522,7 @@ def main() -> None:
 
             start_date = datetime(2026, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             end_date = now()
-            make_report(client, start_date, end_date, False)
+            build_account_report(client, start_date, end_date, True)
     else:
         logger.error('Token not found')
 
