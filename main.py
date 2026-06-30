@@ -203,7 +203,7 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
             ax = axes[0]
             ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
             filename = candles_path / f'{stock.ticker}.png'
-            fig.savefig(filename, dpi=600, bbox_inches='tight' )
+            fig.savefig(filename, dpi=600, bbox_inches='tight')
             plt.close()
             crop_image_white_margins(old_filename=filename, new_filename= filename)
             logger.debug(f"Successfully saved candles for stock with FIGI={stock.name}, Name={stock.name}")
@@ -262,21 +262,21 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     return operations_df
 
 
-def get_money_df(client: Services) -> pd.DataFrame:
+def get_currencies_df(client: Services) -> pd.DataFrame:
     account_id = client.users.get_accounts().accounts[0].id
     positions = client.operations.get_positions(account_id=account_id)
-    money_list = []
+    currency_list = []
     for money in positions.money:
         currency_name = str(money.currency).upper()
         currency_balance = money_to_decimal(money)
         currency = currencies_rates[currency_name]
         currency_balance = (currency_balance / Decimal(currency['nominal']) * Decimal(currency['rate']))
-        money_list.append({
+        currency_list.append({
                 "Валюта": currency['name'],
                 "Сумма": currency_balance,
                 "Сумма в рублях": currency_balance
             })
-    money_df = pd.DataFrame(money_list, columns=["Валюта", "Сумма", "Сумма в рублях"])
+    money_df = pd.DataFrame(currency_list, columns=["Валюта", "Сумма", "Сумма в рублях"])
     logger.info("Currencies dataframe successfully built")
     return money_df
 
@@ -404,7 +404,7 @@ def make_report(client: Services, start_date: datetime, end_date: datetime, draw
     writer = format_xlsx(writer, stocks_float_df, alignments='c' * stocks_float_df.shape[1], sheet_name=sheet_name)
 
     sheet_name = 'Валюта'
-    money_df = get_money_df(client)
+    money_df = get_currencies_df(client)
     money_float_df = round_dataframe_with_decimals(money_df)
     money_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
     writer = format_xlsx(writer, money_float_df, alignments='c' * money_float_df.shape[1], sheet_name=sheet_name)
