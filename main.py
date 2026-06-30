@@ -32,7 +32,7 @@ from t_tech.invest.exceptions import RequestError
 
 from libs.utils import clear_or_create_dir, format_xlsx, crop_image_white_margins, get_entity_with_case, \
     find_item_by_class_attr, get_unique_non_empty, round_dataframe_with_decimals, decimal_to_float_n_decimals
-from libs.report_colorize import colorize_operations_report, colorize_companies_report
+from libs.report_utils import colorize_operations_report, colorize_companies_report, format_report_header
 from libs.grpc_schemas import operations_types, operations_states, trade_directions
 from libs.log_utils import LoggerSingleton
 
@@ -206,7 +206,7 @@ def get_stock_candles(client: Services, figi: str, start_date: datetime, candles
             fig.savefig(filename, dpi=600, bbox_inches='tight')
             plt.close()
             crop_image_white_margins(old_filename=filename, new_filename= filename)
-            logger.debug(f"Successfully saved candles for stock with FIGI={stock.name}, Name={stock.name}")
+            logger.info(f"Successfully saved candles for stock with FIGI={stock.name}, Name={stock.name}")
         else:
             logger.warning(f'Candles for stock with FIGI={stock.name}, Name={stock.name} not found')
     else:
@@ -258,7 +258,7 @@ def get_operations_df(client: Services, start_date: datetime, end_date: datetime
     operations_df = pd.DataFrame(operations_list, columns=["Дата", "Тип операции", "Название", "Тикер", "FIGI",
                                                            "Цена лота", "Количество лотов", "Сумма", "Статус"])
     operations_df.sort_values(by='Дата', ascending=True, inplace=True)
-    logger.info("Operations dataframe successfully built")
+    logger.debug("Operations dataframe successfully built")
     return operations_df
 
 
@@ -277,7 +277,7 @@ def get_currencies_df(client: Services) -> pd.DataFrame:
                 "Сумма в рублях": currency_balance
             })
     money_df = pd.DataFrame(currency_list, columns=["Валюта", "Сумма", "Сумма в рублях"])
-    logger.info("Currencies dataframe successfully built")
+    logger.debug("Currencies dataframe successfully built")
     return money_df
 
 
@@ -297,8 +297,8 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
             total_cost = quantity * current_price
             stocks_list.append({
                 "Название": r[0].name if len(r) > 0 else '',
-                "FIGI": stock.figi,
                 "Тикер": r[0].ticker if len(r) > 0 else '',
+                "FIGI": stock.figi,
                 "UID": stock.instrument_uid,
                 "Текущая цена акции": current_price,
                 "Количество акций": quantity,
@@ -307,11 +307,11 @@ def get_stocks_df(client: Services) -> pd.DataFrame:
                 "Средневзвешенная цена акции": average_position_price,
                 "Доход за все время": expected_yield
             })
-    stocks_df = pd.DataFrame(stocks_list, columns=["Название", "FIGI", "Тикер", "UID", "Количество акций",
+    stocks_df = pd.DataFrame(stocks_list, columns=["Название", "Тикер", "FIGI", "UID", "Количество акций",
                                                   "Количество лотов", "Текущая цена акции",
                                                   "Средневзвешенная цена акции", "Общая стоимость акций",
                                                   "Доход за все время"])
-    logger.info("Stocks dataframe successfully built")
+    logger.debug("Stocks dataframe successfully built")
     return stocks_df
 
 
@@ -376,70 +376,92 @@ def get_stocks_by_date(operations_df: pd.DataFrame, stocks_df: pd.DataFrame) -> 
     return stocks_by_date_df
 
 
-def make_candle_charts(client: Services, figi_lst: set[str], start_date: datetime, end_date: datetime) -> None:
-    candles_path = OUTPUT_PATH / 'candles'
-    clear_or_create_dir(candles_path)
+def build_candle_charts(client: Services, figi_lst: set[str], start_date: datetime, end_date: datetime) -> None:
+    candles_charts_path = OUTPUT_PATH / 'candles_charts'
+    clear_or_create_dir(candles_charts_path)
     stocks = client.instruments.shares().instruments
     for figi in figi_lst:
-        get_stock_candles(client, figi, end_date, candles_path, stocks_cache=stocks)
+        get_stock_candles(client, figi, end_date, candles_charts_path, stocks_cache=stocks)
         time.sleep(REQUEST_DELAY_SECONDS)
 
 
-def build_account_report(client: Services, start_date: datetime, end_date: datetime, draw_candles: bool = False) -> None:
-    filename = f"{OUTPUT_PATH}/report.xlsx"
-    writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+def build_account_report(client: Services, start_date: datetime, end_date: datetime,
+                         need_candle_charts: bool = False) -> None:
     logger.info("Account report building started")
+    try:
+        file_path = Path(OUTPUT_PATH) / "report.xlsx"
+        # file_path.unlink(missing_ok=True)
+        writer = pd.ExcelWriter(file_path, engine='xlsxwriter')
 
-    sheet_name = 'Операции'
-    operations_df = get_operations_df(client, start_date, end_date)
-    operations_df['Дата'] = operations_df['Дата'].apply(datetime_formatter)
-    operations_float_df = round_dataframe_with_decimals(operations_df)
-    operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, operations_float_df, alignments='cllcccccc', sheet_name=sheet_name)
-    writer = colorize_operations_report(writer, operations_float_df, sheet_name=sheet_name)
+        sheet_name = 'Операции'
+        operations_df = get_operations_df(client, start_date, end_date)
+        operations_df['Дата'] = operations_df['Дата'].apply(datetime_formatter)
+        operations_float_df = round_dataframe_with_decimals(operations_df)
+        operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+        writer = format_xlsx(writer, operations_float_df, alignments='cllcccccc', sheet_name=sheet_name)
+        writer = format_report_header(writer, operations_float_df, sheet_name=sheet_name)
+        writer = colorize_operations_report(writer, operations_float_df, sheet_name=sheet_name)
 
-    sheet_name = 'Акции'
-    stocks_df = get_stocks_df(client)
-    stocks_float_df = round_dataframe_with_decimals(stocks_df)
-    stocks_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, stocks_float_df, alignments='c' * stocks_float_df.shape[1], sheet_name=sheet_name)
+        sheet_name = 'Акции'
+        stocks_df = get_stocks_df(client)
+        stocks_float_df = round_dataframe_with_decimals(stocks_df)
+        stocks_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+        writer = format_report_header(writer, stocks_float_df, sheet_name=sheet_name)
+        writer = format_xlsx(writer, stocks_float_df, alignments='c' * stocks_float_df.shape[1], sheet_name=sheet_name)
 
-    sheet_name = 'Валюта'
-    money_df = get_currencies_df(client)
-    money_float_df = round_dataframe_with_decimals(money_df)
-    money_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, money_float_df, alignments='c' * money_float_df.shape[1], sheet_name=sheet_name)
+        sheet_name = 'Валюта'
+        currency_df = get_currencies_df(client)
+        money_float_df = round_dataframe_with_decimals(currency_df)
+        money_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+        writer = format_xlsx(writer, money_float_df, alignments='c' * money_float_df.shape[1], sheet_name=sheet_name)
+        writer = format_report_header(writer, money_float_df, sheet_name=sheet_name)
 
-    sheet_name = 'Итог по типам операций'
-    total_operations_df = pd.DataFrame(operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum())
-    total_operations_float_df = round_dataframe_with_decimals(total_operations_df)
-    total_operations_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, total_operations_float_df, sheet_name=sheet_name, alignments='lc')
-    logger.info("Total by operations types dataframe successfully built")
+        sheet_name = 'Итог по типам операций'
+        total_by_operations_types_df = pd.DataFrame(operations_df.groupby(by="Тип операции", as_index=False)['Сумма'].sum())
+        total_by_operations_types_df.rename(columns={'Сумма': 'Итог'}, inplace=True)
+        total_by_operations_types_float_df = round_dataframe_with_decimals(total_by_operations_types_df)
+        total_by_operations_types_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+        writer = format_xlsx(writer, total_by_operations_types_float_df, sheet_name=sheet_name, alignments='lc')
+        writer = format_report_header(writer, total_by_operations_types_float_df, sheet_name=sheet_name)
+        logger.debug("Total by operations types dataframe successfully built")
 
-    sheet_name = 'Итог по компаниям'
-    mask = (operations_df['Название'].notna() & (operations_df['Название'].str.strip().str.len() > 0))
-    total_by_companies_df = pd.DataFrame(operations_df[mask].groupby('Название', as_index=False)['Сумма'].sum())
-    total_by_companies_df.sort_values(by='Сумма', ascending=False, inplace=True)
-    total_by_companies_float_df = round_dataframe_with_decimals(total_by_companies_df)
-    total_by_companies_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
-    writer = format_xlsx(writer, total_by_companies_float_df, sheet_name=sheet_name, alignments='lc')
-    writer = colorize_companies_report(writer, total_by_companies_float_df, sheet_name=sheet_name)
-    logger.info("Total by companies dataframe successfully built")
+        sheet_name = 'Итог по компаниям'
+        mask = (operations_df['Название'].notna() & (operations_df['Название'].str.strip().str.len() > 0))
+        total_by_companies_df = pd.DataFrame(operations_df[mask].groupby(["Название", "Тикер", "FIGI"], as_index=False)['Сумма'].sum())
+        figi_to_total_cost = dict(zip(stocks_df['FIGI'], stocks_df['Общая стоимость акций']))
+        total_by_companies_df['Сумма'] = (
+                total_by_companies_df['Сумма']
+                + total_by_companies_df['FIGI'].map(figi_to_total_cost).fillna(0)
+        )
+        total_by_companies_df.rename(columns={'Сумма': 'Итог'}, inplace=True)
+        total_by_companies_df.sort_values(by='Итог', ascending=False, inplace=True)
+        total_by_companies_float_df = round_dataframe_with_decimals(total_by_companies_df)
+        total_by_companies_float_df.to_excel(excel_writer=writer, sheet_name=sheet_name, header=True, index=False, float_format='%.6f')
+        writer = format_xlsx(writer, total_by_companies_float_df, sheet_name=sheet_name, alignments='lccc')
+        writer = format_report_header(writer, total_by_companies_float_df, sheet_name=sheet_name)
+        writer = colorize_companies_report(writer, total_by_companies_float_df, sheet_name=sheet_name)
+        logger.debug("Total by companies dataframe successfully built")
 
-    # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
-    # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
-    # writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_by_date_df.shape[1], sheet_name='Портфель на дату')
-    writer.close()
-    logger.info("Account report successfully saved")
+        # stocks_by_date_df = get_stocks_by_date(operations_df, stocks_df)
+        # stocks_by_date_df.to_excel(excel_writer=writer, sheet_name='Портфель на дату', header=True, index=False)
+        # writer = format_xlsx(writer, stocks_df, alignments='c' * stocks_by_date_df.shape[1], sheet_name='Портфель на дату')
+        writer.close()
+        logger.info("Account report successfully saved")
 
-    if draw_candles:
-        # collection of tickers as the sum of tickers from the favorites and tickers for which there were operations
-        figi_lst = {instrument['figi'] for instrument in get_favourite_instruments(client)}
-        operations_figi_list = get_unique_non_empty(operations_df['FIGI'])
-        figi_lst.union(operations_figi_list)
-        make_candle_charts(client, figi_lst, start_date, end_date)
-        logger.info("Candles successfully saved")
+        if need_candle_charts:
+            try:
+                # collection of tickers as the sum of tickers from the favorites and tickers for which there were operations
+                figi_lst = {instrument['figi'] for instrument in get_favourite_instruments(client)}
+                operations_figi_list = get_unique_non_empty(operations_df['FIGI'])
+                figi_lst.union(operations_figi_list)
+                build_candle_charts(client, figi_lst, start_date, end_date)
+                logger.info("Candles charts successfully saved")
+            except Exception as e:
+                logger.error(f"Error while drawing candles charts: {e}")
+    except PermissionError as e:
+        logger.error(f"Unable to save report file, possibly due to insufficient permissions or file being used by another process: {e}")
+    except Exception as e:
+        logger.error(f"Error while building account report: {e}")
 
 
 def get_instrument_id_by_ticker(client: Services, ticker: str) -> str:
@@ -522,7 +544,7 @@ def main() -> None:
 
             start_date = datetime(2026, 1, 1, 0, 0, 0).replace(tzinfo=timezone.utc)
             end_date = now()
-            build_account_report(client, start_date, end_date, True)
+            build_account_report(client, start_date, end_date, False)
     else:
         logger.error('Token not found')
 
