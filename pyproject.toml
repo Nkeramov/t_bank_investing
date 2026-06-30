@@ -7,37 +7,36 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "lxml == 6.1.0",
-    "pytz == 2026.1.post1",
-    "numpy == 2.4.4",
-    "pandas == 3.0.2",
-    "urllib3 == 2.6.3",
+    "lxml == 6.1.1",
+    "pytz == 2026.2",
+    "numpy == 2.5.0",
+    "pandas == 3.0.3",
+    "urllib3 == 2.7.0",
     "pillow == 12.2.0",
     "openpyxl == 3.1.5",
     "colorama == 0.4.6",
-    "aiogram == 3.27.0",
-    "protobuf == 4.25.8",
-    "requests == 2.33.1",
-    "fonttools == 4.62.1",
+    "aiogram == 3.29.0",
+    "protobuf == 6.31.1",
+    "requests == 2.34.2",
+    "fonttools == 4.63.0",
     "XlsxWriter == 3.2.9",
-    "certifi == 2026.2.25",
-    "matplotlib == 3.10.8",
+    "certifi == 2026.6.17",
+    "matplotlib == 3.11.0",
     "python-dotenv == 1.2.2",
     "mplfinance == 0.12.10b0",
-    "beautifulsoup4 == 4.14.3",
+    "beautifulsoup4 == 4.15.0",
     "opencv-python >= 4.8.1.78",
     "charset-normalizer == 3.4.7",
     "tenacity == 9.1.4",
-    "t-tech-investments",
+    "t-tech-investments == 1.49.2",
 ]
 
 keywords = ["python", "trading", "investing", "tinkoff", "analysis"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
@@ -52,12 +51,12 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "mypy == 1.19.0",
-    "ruff == 0.14.8",
+    "mypy == 2.1.0",
+    "ruff == 0.15.20",
     "typing_extensions == 4.15.0",
-    "pandas-stubs == 2.3.3.251201",
-    "types-pytz == 2025.2.0.20251108",
-    "types-requests == 2.32.4.20250913",
+    "pandas-stubs == 3.0.3.260530",
+    "types-pytz == 2026.2.0.20260518",
+    "types-requests == 2.33.0.20260518",
 ]
 
 [tool.setuptools]
